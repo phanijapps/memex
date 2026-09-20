@@ -12,81 +12,108 @@ The filesystem is the memory · the index is disposable · every session is prov
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-3776AB.svg)](pyproject.toml)
 [![Docs site](https://img.shields.io/website?url=https%3A%2F%2Fphanijapps.github.io%2Fmemex%2F&label=docs)](https://phanijapps.github.io/memex/)
 
-[Documentation](https://phanijapps.github.io/memex/) · [User guide](docs/gitpages/guide.md) · [Specification](docs/gitpages/spec.md) · [Harness adapters](marketplace/)
+[Documentation](https://phanijapps.github.io/memex/) · [User guide](docs/gitpages/guide.md) · [Harness adapters](marketplace/)
 
 </div>
 
 ---
 
-## Why
+## Overview
 
-Agents that matter forget things that matter: your stack, your rules, your
-decisions from last Tuesday. Vector databases and cloud memory services
-solve this with infrastructure. Memex solves it with a **filesystem**:
+Agents forget your stack, rules, and past decisions. Memex keeps that knowledge
+in local files and brings relevant memories into coding sessions.
 
-- **The filesystem is the memory.** Every memory is a Markdown page under
-  `~/.memex/docs/` — human-readable, git-able, editable by hand, portable
-  forever. No blobs, no lock-in, no server.
-- **The index is disposable.** SQLite FTS5 provides fast BM25 search, and it
-  is never the source of truth: delete `mem.db`, run `memex rebuild-index`,
-  everything comes back from the pages.
-- **Every session is provable.** Captured transcripts link to episode nodes,
-  so any memory traces back to the conversation that produced it.
+- **Markdown is the memory.** Each page under `~/.memex/docs/` is readable,
+  editable, portable, and suitable for version control.
+- **Search is rebuildable.** SQLite FTS5 provides BM25 search;
+  `memex rebuild-index` restores the index from the pages.
+- **Sessions are traceable.** Captured transcripts link to episode memories,
+  so you can find the conversation behind a memory.
 
-## Agents forget to call tools — memex doesn't rely on them remembering
+Memex combines model-initiated MCP tools, harness hooks that inject context and
+capture transcripts, and `memex verify` for CI checks. The same memory store
+works with pi, Claude Code, Codex, and GitHub Copilot.
 
-| Layer | Mechanism | Guarantee |
-|---|---|---|
-| **Pull** | 5 typed MCP tools (`memex serve-mcp`) | The model can read/write memory when it chooses |
-| **Push** | Harness hooks (`memex hook …`) | Memories are injected into context **every turn**; transcripts are captured automatically |
-| **Proof** | `memex verify` in CI | Health and memory-activity evidence — or the build fails |
+## Quick start
 
-One contract, every harness:
-
-| Harness | Push | Pull | Transcript capture |
-|---|---|---|---|
-| [pi](marketplace/pi/) | per-turn injection (extension) | stdio MCP | session JSONL |
-| [Claude Code](marketplace/claude/) | SessionStart / UserPromptSubmit / SessionEnd hooks | stdio MCP | transcript |
-| [Codex](marketplace/codex/) | AGENTS.md contract + `notify` | stdio MCP | rollout |
-| [GitHub Copilot](marketplace/copilot/) | CI carries it | remote (future) | `memex verify` workflow |
-
-```bash
-memex install              # interactive: pick a harness
-memex install claude        # or codex, pi, copilot, custom
-memex uninstall claude      # remove an adapter; keep ~/.memex data
-```
-
-## Quickstart
+### Install Memex from Git
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/getting-started/installation/).
-
-Install directly from GitHub without cloning the repository:
+Install the CLI directly from GitHub; a source checkout is optional.
 
 ```bash
 uv tool install git+https://github.com/phanijapps/memex.git
 ```
 
-Or install from a source checkout:
+### Connect your coding agent
+
+Run the command for your harness from the project where you want Memex:
 
 ```bash
-git clone https://github.com/phanijapps/memex.git
-cd memex
-uv tool install .
+memex install claude       # Claude Code
+memex install codex        # Codex
+memex install pi           # pi
+memex install copilot      # GitHub Copilot
 ```
 
-Then try it:
+`memex install` opens an interactive picker. See the [harness guide](docs/gitpages/guide.md#harness-integration)
+for what each adapter installs and how it captures sessions.
+
+### Store and recall a memory
 
 ```bash
-# store a memory — it's a plain Markdown page
 memex write --type preference --title "Deploy on Fridays" \
     --body "The team deploys to production on Fridays only." --tags deploy
-
-# recall it — BM25-ranked, snippet-highlighted
 memex recall "deploy"
-
-# read it, edit it by hand, commit it to git
-cat ~/.memex/docs/global/preferences/deploy-on-fridays.md
 ```
+
+The page is a plain file at
+`~/.memex/docs/global/preferences/deploy-on-fridays.md`. For repository
+architecture, conventions, and decisions, use `--scope project`; Memex can
+derive the project identity from the working directory. See
+[project memory](docs/gitpages/guide.md#project-memory-and-dashboard) for scope details.
+
+### Explore your memory
+
+Run `memex viz` to open the local, read-only dashboard. It shows memory pages,
+projects, sessions, token usage, and index health.
+
+![Memex dashboard overview with memory counts, search, and recent pages](docs/gitpages/assets/dashboard-overview.png)
+
+[See the Memories view](docs/gitpages/assets/dashboard-memories.png) for scope
+and type filters. These screenshots use sample data.
+
+### Remove Memex
+
+Run `memex uninstall <name>` from each project where you installed an adapter.
+It removes that harness's Memex wiring and keeps your memories. Then remove
+the CLI if you no longer need it:
+
+```bash
+memex uninstall claude     # repeat for each installed harness
+uv tool uninstall memex    # remove the CLI
+```
+
+Memories and transcripts remain under `~/.memex/` unless you remove that
+directory separately.
+
+## More ways to use Memex
+
+| Command | Purpose |
+|---|---|
+| `write` / `recall` | Store and search memory pages |
+| `forget` | Retire, archive, decay, or delete a memory |
+| `consolidate` | Distill session episodes into durable memories |
+| `viz` | Browse memories and sessions in the local dashboard |
+| `verify` | Check store health and optional recall/write activity in CI |
+| `rebuild-index` / `watch` | Pick up hand edits to Markdown pages |
+| `backup` / `restore` / `export` / `import` | Archive the store or move JSON nodes |
+
+The [user guide](docs/gitpages/guide.md) covers commands, transcripts,
+provenance, scope, configuration, and data safety. The
+[specification](docs/gitpages/spec.md) and
+[implementation notes](docs/gitpages/implementation-notes.md) cover the full
+contract and shipped differences.
 
 <details>
 <summary><strong>Python API</strong></summary>
@@ -103,88 +130,58 @@ memex.close()
 </details>
 
 <details>
-<summary><strong>MCP tools</strong> (schemas carry enums and bounds; errors are sanitized `{"error": …}` data)</summary>
+<summary><strong>MCP and CI</strong></summary>
 
-`memex_write` · `memex_recall` · `memex_consolidate` · `memex_forget` ·
-`memex_provenance`
+The installed harness adapter registers `memex serve-mcp` where supported.
+For a manual Claude Code setup:
 
 ```bash
 claude mcp add memex -- memex serve-mcp
 ```
-</details>
 
-<details>
-<summary><strong>Deterministic CI gate</strong></summary>
+`memex verify` always checks that pages parse, the index matches them, and
+links resolve. Add a time cutoff to require memory activity in CI:
 
 ```bash
 memex verify --since "$PR_CREATED" --require-recall --require-write
 ```
 
-Always checks: every page parses, the index matches content hashes, every
-`[[link]]` resolves. With `--since`, enforces recall/write activity evidence.
-Exit 1 fails the build. Ready-made workflow: [marketplace/copilot/memex-verify.yml](marketplace/copilot/memex-verify.yml).
+The [Copilot workflow](marketplace/copilot/memex-verify.yml) is a ready-made example.
 </details>
 
-## Commands
+## Development
 
-| Command | Purpose |
-|---|---|
-| `write` / `recall` | Store and search memory nodes (BM25, filters, snippets, expiry semantics) |
-| `forget` | `hard` delete, `soft` retire, `decay`, or `archive` a memory |
-| `consolidate` | LLM distillation of episodes into durable nodes — any OpenAI-compatible endpoint, **or the coding harness itself** (`claude`/`codex`/`pi` as provider) |
-| `ingest-transcript` | Store a session JSONL + create the linked episode node |
-| `hook session-start \| prompt \| transcript` | Harness hook contract: context injection + transcript capture |
-| `verify` | Deterministic health + activity gate for CI |
-| `install` | Seamless harness setup: adapters, MCP wiring, `[consolidation]` provisioning, or custom init |
-| `serve-mcp` | stdio MCP server (official SDK) |
-| `rebuild-index` / `watch` | Rebuild `mem.db` from the pages; poll for hand edits |
-| `backup` / `restore` / `export` / `import` | Hardened tar.gz archives; JSON node portability |
-| `viz` | Local, read-only HTMX dashboard for memory, projects, sessions, tokens, and index health |
-| `clear-transcripts --confirm` | Remove raw dated transcripts and retire their episode links |
+### Architecture
 
-## Projects, transcripts, and the dashboard
+The CLI, MCP server, and harness adapters use the same application services.
+Those services write Markdown pages, maintain the disposable SQLite search
+index, and capture session JSONL. The optional dashboard reads this store.
+See the [architecture overview](docs/architecture/overview.md) for code
+ownership and runtime flows.
 
-Global memories live under `~/.memex/docs/global/`. Project memories live under
-`~/.memex/docs/projects/<opaque-project-id>/`; their Markdown front matter carries
-a safe project label. Use `memex write --scope project --project-id <id> --project-label <name>`
-to write one, and `memex recall "query" --scope project --project-id <id>` to search
-within it. Omit the project arguments to search global memory.
-
-Raw transcripts and sidecars live under `~/.memex/transcripts/YYYY-MM-DD/`.
-`memex clear-transcripts --confirm` clears those raw files and retires related
-episode transcript links; use it only when the raw session record is no longer needed.
-
-Run `memex viz` to open the localhost-only, read-only dashboard. The Memories
-view shows 20 newest-first cards per page; type and project controls keep their
-selection while Previous and Next work as normal links or HTMX updates. Search
-can look across all memory or within a selected project. Sessions are grouped
-by capture date, project label, and harness; opening one shows a readable
-User/AI/Tool replay with long tool output safely shortened.
-
-## Documentation
-
-| | |
-|---|---|
-| 📖 [Documentation site](https://phanijapps.github.io/memex/) | Guide, specification, implementation notes |
-| 🚀 [User guide](docs/gitpages/guide.md) | Concepts, every operation, harness integration, config reference |
-| 📐 [Specification](docs/gitpages/spec.md) | Memory model, schemas, C4 diagrams, acceptance tests |
-| 📝 [Implementation notes](docs/gitpages/implementation-notes.md) | Spec deviations and the reasoning |
-| 🧩 [Harness adapters](marketplace/) | pi · Claude Code · Codex · GitHub Copilot |
-
-## Contributing
+### Work from a clone
 
 ```bash
+git clone https://github.com/phanijapps/memex.git
+cd memex
 uv sync --all-groups
-uv run pytest && uv run ruff check . && uv run mypy src tests
 ```
 
-Contributions welcome — see [AGENTS.md](AGENTS.md) for engineering
-conventions and the guide for architecture context.
+To install your checkout as the `memex` CLI, run `uv tool install . --force`.
+
+### Test and contribute
+
+```bash
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy src tests
+uv run mkdocs build --strict
+```
+
+Contributions welcome. Read [AGENTS.md](AGENTS.md) for repository conventions
+and the [user guide](docs/gitpages/guide.md) for behavior and configuration.
 
 ## License
 
 [MIT](LICENSE) © Memex contributors
-
-Memex stores memory as plain files on your machine and treats stored
-memories and tool inputs as untrusted: logs never contain memory contents,
-archives are validated before extraction, and tool errors are sanitized.

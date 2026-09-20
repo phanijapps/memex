@@ -1,5 +1,5 @@
 {
-  "source_revision": "2f77664cdd1fc99f86abe97285d7c20d4e935f39",
+  "source_revision": "928f7c4afcbfec8bf7c66eaed87eaf9f8ebe1297",
   "project_id": "aaaaaaaaaaaaaaaaaaaaaaaa",
   "other_project_id": "bbbbbbbbbbbbbbbbbbbbbbbb",
   "memories": [
@@ -266,6 +266,6 @@
   ],
   "source_hashes": {
     "docs/architecture/overview.md": "d878d33ac060a867bd4134229ed77fc237bdff99821daf794491aa204be6d18f",
-    "docs/gitpages/guide.md": "4d5391b4b2d4d0f0939cc12aa1868f9458a854679531af36ddcabdce5710c494"
+    "docs/gitpages/guide.md": "c8cb6139f4f68512d611acbd9df95af617d84b80a5fdfb9647d0eb8ed6012ec4"
   }
 }

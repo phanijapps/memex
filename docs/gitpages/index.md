@@ -2,64 +2,65 @@
 
 # Memex
 
-A durable, local-first memory layer for AI coding agents.
+A durable, local memory layer for AI coding agents. Memories are readable
+Markdown files under `~/.memex/docs/`; a rebuildable SQLite index makes them
+searchable. Memex brings relevant pages into coding sessions and records where
+they came from.
 
-The memory store **is** the filesystem: every memory is a human-readable Markdown
-page under `~/.memex/docs/`, git-able and editable by hand. SQLite FTS5 is
-a disposable BM25 index — delete it and it rebuilds from the pages. No
-server, no cloud, no embeddings.
+## Get started
 
-## Install
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/getting-started/installation/).
 
-Install Memex directly from GitHub with `uv`:
+1. **Install the CLI from Git:**
 
-```bash
-uv tool install git+https://github.com/phanijapps/memex.git
-```
+    ```bash
+    uv tool install git+https://github.com/phanijapps/memex.git
+    ```
 
-## Try it
+2. **Connect your coding agent** from your project directory:
 
-```bash
-memex write --type preference --title "Deploy on Fridays" \
-    --body "The team deploys to production on Fridays only."
-memex recall "deploy"
-```
+    ```bash
+    memex install claude   # or codex, pi, copilot
+    ```
 
-## Why three layers
+    Run `memex install` without a name to choose interactively.
 
-Agents forget to call tools. Memex does not rely on them remembering:
+3. **Store and find a memory:**
 
-- **Pull** — five typed MCP tools (`memex serve-mcp`) for model-initiated
-  memory operations, with enums and bounds enforced in the tool schemas.
-- **Push** — harness hooks (`memex hook session-start | prompt | transcript`)
-  inject relevant memories into context on every turn and capture session
-  transcripts automatically. Deterministic, no model cooperation required.
-- **Proof** — `memex verify` turns memory practice into a CI gate: health
-  checks always, recall/write evidence on demand, exit 1 fails the build.
+    ```bash
+    memex write --type preference --title "Deploy on Fridays" \
+        --body "The team deploys to production on Fridays only."
+    memex recall "deploy"
+    ```
 
-## One contract, every harness
+    Use `--scope project` for workspace knowledge; Memex derives the project
+    identity from the current directory. The [guide](guide.md#project-memory-and-dashboard)
+    explains global and project scope.
 
-| Harness | Push | Pull | Capture |
-|---|---|---|---|
-| pi | extension: per-turn injection | stdio MCP | session JSONL |
-| Claude Code | SessionStart / UserPromptSubmit / SessionEnd hooks | stdio MCP | transcript |
-| Codex | AGENTS.md contract + notify | stdio MCP | rollout |
-| Copilot | CI carries it | remote (future) | verify workflow |
+4. **Open the dashboard** with `memex viz` to browse memories, sessions,
+   projects, and health on your own machine.
 
-Install any adapter with `memex install <name>` (the marketplace ships inside
-the package).
+![Memex dashboard overview showing memory counts and recent pages](assets/dashboard-overview.png)
 
-## Provenance by construction
+The [Memories view](assets/dashboard-memories.png) shows scope and type filters.
+Both screenshots use sample data.
 
-Every captured session becomes an episode node linked to its raw JSONL
-transcript. Any memory can be traced back to the conversation that produced
-it — `direct` when the node came from a transcript, `inferred` when an
-episode references it.
+To disconnect a harness, run `memex uninstall <name>` from the project where
+you installed it. To remove the CLI, run `uv tool uninstall memex`. Your
+memories and transcripts remain under `~/.memex/`.
 
-## Next
+## How Memex works
 
-- [User guide](guide.md) — concepts, every operation, harness integration,
-  configuration reference
-- [Specification](spec.md) — the build-ready spec: memory model, schemas,
-  C4 diagrams
-- [Implementation notes](implementation-notes.md) — spec deviations and why
+- **Pull:** MCP tools let the model search and write memory when it chooses.
+- **Push:** Harness hooks inject relevant memories and capture transcripts.
+- **Proof:** `memex verify` checks store health and can require memory activity
+  in CI.
+
+The filesystem is the source of truth. The index can be rebuilt from Markdown
+pages, and captured sessions link memories to their source conversations.
+
+## Where to go next
+
+- [User guide](guide.md) — operations, project scope, harness setup, and configuration
+- [Specification](spec.md) — architecture diagrams, memory model, and schemas
+- [Implementation notes](implementation-notes.md) — shipped differences from the specification

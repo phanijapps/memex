@@ -66,24 +66,24 @@ recall by default (`--include-expired` / `include_expired=True` opts back in).
 
 ## Getting started
 
-```bash
-# install from source (run inside a clone of this repository)
-git clone https://github.com/phanijapps/memex.git
-cd memex
-uv tool install . --force
-# Rebuilding after source edits at the SAME version? Add --no-cache:
-# uv caches built wheels by version and would otherwise reinstall old code.
+Install the CLI directly from GitHub, then connect it to a coding agent from
+your project directory:
 
-# store your first memory
+```bash
+uv tool install git+https://github.com/phanijapps/memex.git
+memex install claude          # or codex, pi, copilot
+
 memex write --type preference --title "Deploy on Fridays" \
     --body "The team deploys to production on Fridays only." --tags deploy
-
-# recall it (and watch access statistics track usage)
 memex recall "deploy"
-
-# it's a plain file — read it, edit it, commit it
 cat ~/.memex/docs/global/preferences/deploy-on-fridays.md
 ```
+
+Run `memex install` without a name to choose a harness interactively. For
+source development, clone the repository and run `uv sync --all-groups`;
+`uv tool install . --force` installs that checkout as the CLI. If you rebuild
+at the same version after changing source files, add `--no-cache` because uv
+may reuse the earlier wheel.
 
 Version-control your memory if you like:
 
@@ -224,6 +224,13 @@ of choosing one page.
 `memex viz` starts a localhost-only, read-only dashboard. It provides direct
 links and HTMX-enhanced navigation for global and project memory, health,
 sessions, and token use. The dashboard does not write pages or transcript data.
+
+![Memex Memories view with global and project pages](assets/dashboard-memories.png)
+
+The screenshot uses sample data. Start with the
+[dashboard overview](assets/dashboard-overview.png) for counts, search, and
+recent memories.
+
 The Memories view shows 20 newest-first cards per page and preserves type
 and scope in direct Previous/Next URLs. Selecting a new type or scope starts on
 page one. “All memory” browses every namespace; “Global only” browses global
@@ -328,6 +335,8 @@ Memex's hooks, MCP registration, copied adapter files,
 and exact guidance snippets for that harness. Unrelated settings and modified
 adapter files are left in place and reported. The command keeps `~/.memex`
 memories, transcripts, and configuration; run it once per installed harness.
+After removing adapters, `uv tool uninstall memex` removes the CLI. Your
+`~/.memex/` data remains until you remove it separately.
 
 Installing `claude`, `codex`, or `pi` also provisions `memex.toml`
 (absent one) with `[consolidation] provider = "<harness>"` — so

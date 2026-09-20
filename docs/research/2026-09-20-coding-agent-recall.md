@@ -1,7 +1,7 @@
 # Coding-agent task recall: six real-project workflows
 
 - **Run date:** 2026-09-20
-- **Source revision:** `2f77664cdd1fc99f86abe97285d7c20d4e935f39`
+- **Source revision:** `928f7c4afcbfec8bf7c66eaed87eaf9f8ebe1297`
 - **Reproduce:** `uv run python -m eval.agent_workflow`
 
 ## Question and plan
