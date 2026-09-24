@@ -9,6 +9,7 @@ import pytest
 from memex.application.decay import RecencyDecay
 from memex.application.memory import Memex
 from memex.application.ports import LLMResponse
+from memex.application.verify import VerifyReport, verify
 from memex.domain import types as T
 from memex.domain.errors import WikiStoreError
 from memex.domain.models import ConsolidateInput, TaskRecallInput, WikiNode, WriteInput
@@ -428,3 +429,52 @@ class TestConsolidationGovernance:
         node = m.wiki_store.read("x")
         assert node is not None and node.scope == "global" and node.type == "entity"
         assert not list((data_dir / "docs" / "global").glob("story-map"))
+
+
+def _failed(report: VerifyReport) -> dict[str, str]:
+    return {str(c["check"]): str(c["detail"]) for c in report.checks if not c["ok"]}
+
+
+def test_verify_reports_type_directory_mismatch(data_dir: Path) -> None:
+    m = Memex(MemexConfig(data_dir=data_dir))
+    m.wiki_store.declare_type("decision", scope="project", project_id=PROJECT)
+    node = m.write(
+        WriteInput(type="decision", title="Choose", body="b", scope="project", project_id=PROJECT)
+    )
+    path = Path(node.file_path or "")
+    path.write_text(path.read_text().replace('type: "decision"', 'type: "policy"'))
+    failed = _failed(verify(m))
+    assert "types-match-directory" in failed and "choose" in failed["types-match-directory"]
+
+
+def test_verify_reports_undeclared_directory_and_non_pending_draft(data_dir: Path) -> None:
+    m = Memex(MemexConfig(data_dir=data_dir))
+    m.write(WriteInput(type="entity", title="Seed", body="b", scope="project", project_id=PROJECT))
+    project_dir = Path(m.wiki_store.get_path("seed")).parent.parent
+    (project_dir / "mystery").mkdir()
+    seed_path = Path(m.wiki_store.get_path("seed"))
+    seed_text = seed_path.read_text()
+    mystery_text = seed_text.replace('type: "entity"', 'type: "mystery"').replace("Seed", "Thing")
+    (project_dir / "mystery" / "thing.md").write_text(mystery_text)
+    m.wiki_store.declare_type(
+        "story-map",
+        scope="project",
+        project_id=PROJECT,
+        actor="consolidation",
+        draft=True,
+    )
+    m.write(
+        WriteInput(
+            type="story-map",
+            title="Map",
+            body="b",
+            scope="project",
+            project_id=PROJECT,
+            status="active",
+        )
+    )
+    failed = _failed(verify(m))
+    assert "mystery" in failed["types-declared"]
+    assert "map" in failed["draft-types-pending"]
+    for detail in failed.values():
+        assert str(data_dir) not in detail

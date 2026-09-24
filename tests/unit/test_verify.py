@@ -21,8 +21,8 @@ def test_healthy_store_passes(memex: Memex) -> None:
 
     assert report.ok is True
     assert all(check["ok"] for check in report.checks)
-    # Health checks plus the five OKF v0.2 conformance checks.
-    assert len(report.checks) == 9
+    # Health checks plus the five OKF v0.2 conformance checks plus three type checks.
+    assert len(report.checks) == 12
 
 
 def test_malformed_page_fails_health(memex: Memex, data_dir: Path) -> None:

@@ -8,9 +8,11 @@ only enforced when requested via require flags.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from memex.application.memory import Memex
 from memex.domain.models import WikiNode
+from memex.domain.types import type_directory
 from memex.infrastructure.store.navigation import NavigationChange
 from memex.infrastructure.store.wiki_store import hash_body
 
@@ -72,6 +74,7 @@ def verify(
     checks.append(_check("links-resolve", not broken, f"{len(broken)} broken links"))
 
     checks.extend(okf_checks(nodes))
+    checks.extend(type_checks(memex, nodes))
 
     navigation_changes = memex.navigation.diagnose(nodes)
     navigation_defects = [
@@ -119,6 +122,64 @@ def _slug_detail(label: str, slugs: list[str]) -> str:
         return f"0 {label}"
     shown = ", ".join(sorted(slugs)[:3])
     return f"{len(slugs)} {label}: {shown}"
+
+
+def type_checks(memex: Memex, nodes: list[WikiNode]) -> list[dict[str, object]]:
+    """Project concept types: page type matches its directory, every
+    directory is declared, and a draft type holds only pending pages."""
+    mismatched = [
+        n.slug
+        for n in nodes
+        if n.file_path and Path(n.file_path).parent.name != type_directory(n.type)
+    ]
+    undeclared: list[str] = []
+    non_pending: list[str] = []
+    projects_dir = memex.wiki_store.wiki_dir / "projects"
+    if projects_dir.is_dir():
+        for project_dir in sorted(
+            p for p in projects_dir.iterdir() if p.is_dir() and not p.is_symlink()
+        ):
+            project_id = memex.wiki_store.project_id_of(project_dir)
+            if project_id:
+                declared = memex.wiki_store.declared_types(scope="project", project_id=project_id)
+            else:
+                declared = {}
+            by_dir = {type_directory(name): decl for name, decl in declared.items()}
+            for child in sorted(
+                p for p in project_dir.iterdir() if p.is_dir() and not p.is_symlink()
+            ):
+                decl = by_dir.get(child.name)
+                if decl is None:
+                    undeclared.append(f"{project_dir.name}/{child.name}")
+                    continue
+                if decl.kind == "draft":
+                    for n in nodes:
+                        if (
+                            n.file_path
+                            and Path(n.file_path).parent == child
+                            and n.status != "pending"
+                        ):
+                            non_pending.append(n.slug)
+    mismatch_label = "pages whose type differs from their directory"
+    declare_label = "project directories without a declaration"
+    pending_label = "non-pending pages inside draft types"
+    return [
+        _check(
+            "types-match-directory",
+            not mismatched,
+            _slug_detail(mismatch_label, mismatched),
+        ),
+        _check(
+            "types-declared",
+            not undeclared,
+            _slug_detail(declare_label, undeclared),
+        ),
+        _check(
+            "draft-types-pending",
+            not non_pending,
+            _slug_detail(pending_label, non_pending),
+        ),
+    ]
 
 
 def okf_checks(nodes: list[WikiNode]) -> list[dict[str, object]]:
