@@ -118,6 +118,11 @@ NodeList = list[WikiNode]
 PathList = list[Path]
 StrList = list[str]
 NamespaceKey = tuple[str, str, str, str]
+# Bare `list[...]` cannot appear in a WikiStore method signature: the class
+# also defines a method named `list`, and mypy resolves annotation forward
+# references (PEP 563) against the enclosing class scope, so it would bind
+# to that method instead of the builtin.
+ProjectDeclarations = list[tuple[str, TypeDeclaration]]
 
 
 def is_type_dir(wiki_dir: Path, directory: Path) -> bool:
@@ -431,6 +436,38 @@ class WikiStore:
                 found[name] = TypeDeclaration(name, "builtin", "", pages, directory)
             return found
         return self.declared_types_in(root)
+
+    def project_declarations(self) -> tuple[ProjectDeclarations, int]:
+        """Every non-builtin type declaration under every project directory.
+
+        Returns ``([(project_id, declaration), ...], skipped)``. A project
+        directory's ``project_id`` is recovered from its pages' front matter
+        via ``_project_id_in_dir`` rather than assumed from the directory
+        name: a caller may pass a ``project_locator`` that diverges from the
+        ``project_id`` (see ``_project_dir``), so directory name equality is
+        not guaranteed by the layout. A directory that declares types but
+        holds no pages yet has no reliable ``project_id`` to export under and
+        is skipped; ``skipped`` counts how many such directories were found.
+        """
+        results: ProjectDeclarations = []
+        skipped = 0
+        projects_dir = self.wiki_dir / "projects"
+        if not projects_dir.exists():
+            return results, skipped
+        for directory in sorted(projects_dir.iterdir()):
+            if not directory.is_dir() or directory.is_symlink():
+                continue
+            project_id = self._project_id_in_dir(directory)
+            declarations = [
+                d for d in self.declared_types_in(directory).values() if d.kind != "builtin"
+            ]
+            if project_id is None:
+                if declarations:
+                    skipped += 1
+                continue
+            for declaration in declarations:
+                results.append((project_id, declaration))
+        return results, skipped
 
     def declare_type(
         self,

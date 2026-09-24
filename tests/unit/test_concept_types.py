@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from memex.domain.errors import WikiStoreError
 from memex.domain.models import ConsolidateInput, TaskRecallInput, WikiNode, WriteInput
 from memex.domain.types import TYPE_DIRS
 from memex.infrastructure.config import GovernanceConfig, MemexConfig
+from memex.infrastructure.store.import_export import ImportExport
 from memex.infrastructure.store.wiki_store import WikiStore
 
 
@@ -500,3 +502,69 @@ def test_declared_types_in_matches_declared_types(data_dir: Path) -> None:
     declared_in = store.declared_types_in(project_dir)
     declared = store.declared_types(scope="project", project_id=PROJECT)
     assert declared_in == declared
+
+
+def test_export_import_round_trips_declared_types(data_dir: Path, tmp_path: Path) -> None:
+    m = Memex(MemexConfig(data_dir=data_dir))
+    m.wiki_store.declare_type("decision", scope="project", project_id=PROJECT)
+    m.wiki_store.declare_type(
+        "access-matrix", scope="project", project_id=PROJECT, description="Who may edit."
+    )
+    m.write(
+        WriteInput(type="decision", title="Choose", body="b", scope="project", project_id=PROJECT)
+    )
+    archive = tmp_path / "e.json"
+    doc = ImportExport(m.wiki_store, m.index_manager, m.link_manager).export(archive)
+    exported_types = doc["types"]
+    assert isinstance(exported_types, list)
+    assert {
+        "scope": "project",
+        "project_id": PROJECT,
+        "name": "access-matrix",
+        "kind": "custom",
+        "description": "Who may edit.",
+    } in exported_types
+
+    other = Memex(MemexConfig(data_dir=tmp_path / "second"))
+    ImportExport(other.wiki_store, other.index_manager, other.link_manager).import_file(archive)
+    types = other.wiki_store.declared_types(scope="project", project_id=PROJECT)
+    assert types["decision"].kind == "catalogue"
+    assert types["access-matrix"].description == "Who may edit."
+    read = other.wiki_store.read("choose")
+    assert read is not None and read.type == "decision"
+
+
+def test_import_fails_on_page_of_undeclared_type(data_dir: Path, tmp_path: Path) -> None:
+    other = Memex(MemexConfig(data_dir=data_dir))
+    archive = tmp_path / "bad.json"
+    archive.write_text(
+        json.dumps(
+            {
+                "version": "1.0",
+                "exported_at": "2026-01-01T00:00:00Z",
+                "types": [],
+                "nodes": [
+                    {
+                        "slug": "x",
+                        "type": "decision",
+                        "title": "X",
+                        "body": "b",
+                        "tags": [],
+                        "importance": 0.5,
+                        "created": "2026-01-01T00:00:00Z",
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "updated_at": "2026-01-01T00:00:00Z",
+                        "links": [],
+                        "scope": "project",
+                        "project_id": PROJECT,
+                    }
+                ],
+            }
+        )
+    )
+    io = ImportExport(other.wiki_store, other.index_manager, other.link_manager)
+    result = io.import_file(archive)
+    import_errors = result["errors"]
+    assert result["imported"] == 0
+    assert isinstance(import_errors, list)
+    assert any("x" in e and "undeclared" in e for e in import_errors)
