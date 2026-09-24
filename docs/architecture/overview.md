@@ -220,8 +220,8 @@ declared custom for the caller's scope and project before any file is
 written, and `NavigationGenerator` orders headings built-in-first then
 declared types alphabetically, falling back to a full render when a parsed
 index's section order is not canonical. `RecencyDecay.apply_decay` skips
-every catalogue and custom page (`domain/types.py:decays`): the five
-built-ins age on recency, knowledge does not.
+every catalogue page (`domain/types.py:decays`): the five built-ins and
+custom pages age on recency, catalogue knowledge does not.
 
 ### Verification and maintenance
 

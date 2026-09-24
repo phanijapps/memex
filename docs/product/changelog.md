@@ -69,8 +69,9 @@ unreleased until a release tag is created.
   not — lands `pending` when consolidation writes it and `active` when a
   person writes it, unless `knowledge_approval = "auto"`. A `memex.toml`
   carrying the retired `approval` key fails loading, naming the
-  replacement. Catalogue and custom pages are exempt from
-  `RecencyDecay` — knowledge is refined or superseded, never aged out.
+  replacement. Catalogue pages are exempt from
+  `RecencyDecay` — knowledge is refined or superseded, never aged out;
+  built-in and custom pages still age.
   Consolidation writes knowledge into the project the source episode came
   from, and may write `decision` only where a project has enabled it.
 - Harness install assets moved from the repository root to

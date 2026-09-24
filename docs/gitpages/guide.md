@@ -82,9 +82,10 @@ The five built-ins keep their historical plural directories
 (`entities/`, `preferences/`, `procedures/`, `summaries/`, `episodes/`) and
 their behaviour unchanged; catalogue and custom types are project-scoped and
 use their own name as the directory name (`decision/`, `access-matrix/`).
-**Memory decays, knowledge does not** — catalogue and custom pages are
-exempt from recency decay, since a policy nobody recalled for six months is
-not less true. **Memory is automatic, knowledge is governed** — `episode`
+**Memory decays, knowledge does not** — catalogue pages are exempt from
+recency decay, since a policy nobody recalled for six months is not less
+true; built-in and custom pages still age. **Memory is automatic, knowledge
+is governed** — `episode`
 and `summary` are always `active` on write; every other type is `active`
 when a person writes it and `pending` when a model does, unless
 `knowledge_approval = "auto"` (see

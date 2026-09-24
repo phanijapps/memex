@@ -47,8 +47,8 @@ Two rules follow from memory versus knowledge, and both live in the same
 module so every layer applies them the same way:
 
 - **Memory decays, knowledge does not.** `RecencyDecay` skips every catalogue
-  and custom type; only the built-in five age out. A policy nobody recalled
-  for six months is not less true.
+  type; the built-in five and custom types still age out. A policy nobody
+  recalled for six months is not less true.
 - **Memory is automatic, knowledge is governed.** `episode` and `summary` are
   `active` on write, always. Every other type is `active` when a person
   writes it and `pending` when a model does, governed by
