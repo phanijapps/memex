@@ -30,6 +30,10 @@ TYPE_DIRS: dict[str, str] = {
 }
 _DIR_TYPES: dict[str, str] = {directory: name for name, directory in TYPE_DIRS.items()}
 
+# The generated navigation section that lists child directories; a custom
+# type may never take this name, or two index sections would share a heading.
+SUBDIRECTORIES_HEADING = "Subdirectories"
+
 TYPE_NAME = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 KNOWLEDGE_APPROVAL_VALUES: tuple[str, ...] = ("manual", "auto")
 
@@ -55,13 +59,9 @@ CATALOGUE: dict[str, TypeContract] = {
             ("user", "consolidation"),
             False,
         ),
-        TypeContract(
-            "architecture", "how the system is put together and why", ("user",), False
-        ),
+        TypeContract("architecture", "how the system is put together and why", ("user",), False),
         TypeContract("rule", "a constraint that can be checked", ("user",), False),
-        TypeContract(
-            "policy", "a principle that guides judgment", ("user",), False
-        ),
+        TypeContract("policy", "a principle that guides judgment", ("user",), False),
         TypeContract(
             "decision",
             "what was chosen, when, and why",
@@ -87,6 +87,7 @@ def validate_type_name(name: str, *, custom: bool = False) -> str:
             | set(TYPE_DIRS.values())
             | set(CATALOGUE)
             | set(RESERVED_SLUGS)
+            | {SUBDIRECTORIES_HEADING.lower()}
         )
         if name in taken:
             raise ValueError(

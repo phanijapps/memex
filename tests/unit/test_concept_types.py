@@ -27,11 +27,23 @@ class TestTypeNames:
             T.validate_type_name(name)
 
     @pytest.mark.parametrize(
-        "name", ["entity", "entities", "episode", "episodes", "index", "log", "rule", "decision"]
+        "name",
+        [
+            "entity",
+            "entities",
+            "episode",
+            "episodes",
+            "index",
+            "log",
+            "rule",
+            "decision",
+            "subdirectories",
+        ],
     )
     def test_collisions_with_builtin_catalogue_and_reserved(self, name: str) -> None:
         # Review Focus 4: a custom type may never shadow a built-in name, a
-        # built-in directory, a catalogue name, or a reserved filename.
+        # built-in directory, a catalogue name, a reserved filename, or the
+        # generated "Subdirectories" navigation heading.
         with pytest.raises(ValueError, match="already"):
             T.validate_type_name(name, custom=True)
 
@@ -210,6 +222,13 @@ class TestDeclaration:
         # Review Focus 5.
         with pytest.raises(WikiStoreError, match="global scope"):
             _store(data_dir).declare_type("rule", scope="global", project_id=None)
+
+    def test_declare_type_refuses_the_subdirectories_heading(self, data_dir: Path) -> None:
+        # A custom type named "subdirectories" would render the same
+        # "## Subdirectories" heading the generator uses for child links.
+        store = _store(data_dir)
+        with pytest.raises(WikiStoreError, match="already"):
+            store.declare_type("subdirectories", scope="project", project_id=PROJECT)
 
 
 class TestWritesRespectDeclarations:

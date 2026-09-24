@@ -120,6 +120,30 @@ StrList = list[str]
 NamespaceKey = tuple[str, str, str, str]
 
 
+def is_type_dir(wiki_dir: Path, directory: Path) -> bool:
+    """A direct child of a scope root whose name is a built-in dir or a valid type name.
+
+    A directory directly under ``docs/`` — no ``global`` or project
+    segment — counts only when its name is one of the five built-in
+    directory names (``entities``, ``preferences``, ...): pre-project-
+    scoping data and tooling such as ``eval/realistic.py`` write flat
+    ``docs/{type}/`` pages that way, and reading them back must keep
+    working. ``docs/global`` and ``docs/projects`` are scope-root
+    *containers*, not type directories, so this flat allowance never
+    extends to an arbitrary name there. A declared (catalogue or
+    custom) type only ever lives under an actual scope root
+    (``docs/global/<type>`` or ``docs/projects/<project>/<type>``).
+    """
+    if not directory.is_dir() or directory.is_symlink():
+        return False
+    parent = directory.parent
+    if parent == wiki_dir:
+        return directory.name in TYPE_DIRS.values()
+    if parent != wiki_dir / "global" and parent.parent != wiki_dir / "projects":
+        return False
+    return is_type_directory_name(directory.name)
+
+
 class _MissingWikiPage(WikiStoreError):
     """Private sentinel so missing pages don't mask ambiguous pages."""
 
@@ -340,27 +364,8 @@ class WikiStore:
         raise WikiStoreError("scope must be 'global' or 'project' with a project_id")
 
     def _is_type_dir(self, directory: Path) -> bool:
-        """A direct child of a scope root whose name is a built-in dir or a valid type name.
-
-        A directory directly under ``docs/`` — no ``global`` or project
-        segment — counts only when its name is one of the five built-in
-        directory names (``entities``, ``preferences``, ...): pre-project-
-        scoping data and tooling such as ``eval/realistic.py`` write flat
-        ``docs/{type}/`` pages that way, and reading them back must keep
-        working. ``docs/global`` and ``docs/projects`` are scope-root
-        *containers*, not type directories, so this flat allowance never
-        extends to an arbitrary name there. A declared (catalogue or
-        custom) type only ever lives under an actual scope root
-        (``docs/global/<type>`` or ``docs/projects/<project>/<type>``).
-        """
-        if not directory.is_dir() or directory.is_symlink():
-            return False
-        parent = directory.parent
-        if parent == self.wiki_dir:
-            return directory.name in TYPE_DIRS.values()
-        if parent != self.wiki_dir / "global" and parent.parent != self._projects_dir():
-            return False
-        return is_type_directory_name(directory.name)
+        """Delegates to the module-level predicate navigation.py also uses."""
+        return is_type_dir(self.wiki_dir, directory)
 
     def _log_state(self, directory: Path) -> tuple[str | None, str]:
         """(last lifecycle verb, declared description) from ``log.md``; (None, "") when absent."""

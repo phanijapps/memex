@@ -1143,3 +1143,31 @@ def test_declared_type_rows_survive_the_splice_oracle(data_dir: Path) -> None:
         )
     memex.forget("rule-1", mode="hard")
     _oracle_clean(memex)
+
+
+def test_stray_files_at_scope_root_positions_are_not_pages(data_dir: Path) -> None:
+    """A non-structural ``.md`` directly in ``docs/global/`` or
+    ``docs/projects/<id>/`` is not a page position: navigation shares the
+    store's own ``is_type_dir`` predicate, so a stray file there can never
+    be mistaken for a page (regression: a bare name/regex check would also
+    match ``global``, ``projects``, and any 24-char project id).
+    """
+    memex = _memex(data_dir)
+    slug = memex.write(
+        WriteInput(type="entity", title="Real page", body="b", scope="project", project_id=PROJECT)
+    ).slug
+    docs = memex.wiki_store.wiki_dir
+    project_dir = docs / "projects" / PROJECT
+    before = memex.navigation._needed_dirs()
+
+    (project_dir / "notes.md").write_text("stray notes\n", encoding="utf-8")
+    (docs / "global").mkdir(parents=True, exist_ok=True)
+    (docs / "global" / "notes.md").write_text("stray notes\n", encoding="utf-8")
+
+    assert memex.navigation._needed_dirs() == before
+    assert memex.navigation._subtree_has_pages(project_dir) is True
+
+    memex.forget(slug, mode="hard")
+    assert memex.navigation._subtree_has_pages(project_dir) is False
+
+    _oracle_clean(memex)

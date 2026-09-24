@@ -19,11 +19,11 @@ from typing import ClassVar
 from memex.domain.errors import MemexError
 from memex.domain.models import NODE_TYPES, WikiNode
 from memex.domain.reserved import OKF_VERSION, classify_reserved_text, is_structural
-from memex.domain.types import heading_for, is_type_directory_name, type_for_heading
+from memex.domain.types import SUBDIRECTORIES_HEADING, heading_for, type_for_heading
+from memex.infrastructure.store.wiki_store import is_type_dir
 
 _INDEX_NAME = "index.md"
 _ESCAPE_CHARS = frozenset("\\`*_[]<>")
-_SUBDIR_HEADING = "Subdirectories"
 
 # Entry lines of one index keyed by node type, then by slug: the parsed
 # form of an index that both the full render and the single-page splice
@@ -253,7 +253,7 @@ class NavigationGenerator:
             lines.extend(rows[slug] for slug in sorted(rows))
         if children:
             lines.append("")
-            lines.append(f"## {_SUBDIR_HEADING}")
+            lines.append(f"## {SUBDIRECTORIES_HEADING}")
             lines.extend(f"- [{child}/]({child}/{_INDEX_NAME})" for child in children)
         body = "\n".join(lines) + "\n"
         if directory == self._wiki_dir:
@@ -284,7 +284,7 @@ class NavigationGenerator:
             heading = lines[pos + 1][3:]
             if seen_subdir:
                 return None  # nothing follows the subdirectory section
-            if heading == _SUBDIR_HEADING:
+            if heading == SUBDIRECTORIES_HEADING:
                 seen_subdir = True
             else:
                 node_type = type_for_heading(heading)
@@ -306,7 +306,7 @@ class NavigationGenerator:
                 link = _entry_link(line)
                 if link is None:
                     return None
-                if heading == _SUBDIR_HEADING:
+                if heading == SUBDIRECTORIES_HEADING:
                     child = link.removesuffix(f"/{_INDEX_NAME}")
                     if line != f"- [{child}/]({child}/{_INDEX_NAME})":
                         return None
@@ -326,14 +326,15 @@ class NavigationGenerator:
         """Directories needing an index: ancestors of page-holding directories.
 
         A page is a non-structural ``*.md`` in a type-directory position; the
-        same predicate governs generation, refresh, and child links so the
-        surfaces cannot disagree. An empty store needs none: navigation
-        exists to disclose pages, and requiring a root index would fail
-        ``verify`` on every fresh store until an explicit rebuild runs.
+        store's own ``is_type_dir`` predicate governs generation, refresh, and
+        child links so the surfaces cannot disagree. An empty store needs
+        none: navigation exists to disclose pages, and requiring a root index
+        would fail ``verify`` on every fresh store until an explicit rebuild
+        runs.
         """
         needed: set[Path] = set()
         for path in self._wiki_dir.rglob("*.md"):
-            if is_structural(path) or not is_type_directory_name(path.parent.name):
+            if is_structural(path) or not is_type_dir(self._wiki_dir, path.parent):
                 continue
             needed.add(self._wiki_dir)
             current = path.parent
@@ -420,12 +421,12 @@ class NavigationGenerator:
         """
         if not directory.is_dir():
             return False
-        if is_type_directory_name(directory.name) and any(
+        if is_type_dir(self._wiki_dir, directory) and any(
             not is_structural(path) for path in directory.glob("*.md")
         ):
             return True
         return any(
-            not is_structural(path) and is_type_directory_name(path.parent.name)
+            not is_structural(path) and is_type_dir(self._wiki_dir, path.parent)
             for path in directory.rglob("*.md")
         )
 
