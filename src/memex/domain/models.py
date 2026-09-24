@@ -288,6 +288,10 @@ class WriteInput:
     project_id: str | None = None
     project_label: str | None = None
     project_locator: str | None = None
+    #: Consolidation-only: a candidate name for a concept type no listed type
+    #: fits. Never validated here — the consolidator validates and clears it
+    #: before any node reaches ``Memex.write``.
+    proposed_type: str | None = None
 
     def __post_init__(self) -> None:
         validate_type_name(self.type)

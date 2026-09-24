@@ -7,10 +7,13 @@ from pathlib import Path
 import pytest
 
 from memex.application.decay import RecencyDecay
+from memex.application.memory import Memex
+from memex.application.ports import LLMResponse
 from memex.domain import types as T
 from memex.domain.errors import WikiStoreError
-from memex.domain.models import TaskRecallInput, WikiNode, WriteInput
+from memex.domain.models import ConsolidateInput, TaskRecallInput, WikiNode, WriteInput
 from memex.domain.types import TYPE_DIRS
+from memex.infrastructure.config import GovernanceConfig, MemexConfig
 from memex.infrastructure.store.wiki_store import WikiStore
 
 
@@ -283,3 +286,122 @@ def test_catalogue_pages_never_decay_builtins_do(data_dir: Path) -> None:
     assert [slug for slug, _old, _new in changes] == ["kafka"]
     policy = store.read("prefer-boring-tech")
     assert policy is not None and policy.importance == 1.0
+
+
+class _FakeLLM:
+    """Matches memex.application.ports.LLMClient: complete(system, user, *, max_tokens)."""
+
+    def __init__(self, payload: str) -> None:
+        self.payload = payload
+
+    def complete(self, system: str, user: str, *, max_tokens: int) -> LLMResponse:
+        return LLMResponse(text=self.payload, prompt_tokens=1, completion_tokens=1)
+
+
+def _memex_with(data_dir: Path, payload: str, approval: str = "manual") -> Memex:
+    governance = GovernanceConfig(knowledge_approval=approval)
+    m = Memex(MemexConfig(data_dir=data_dir, governance=governance))
+    m._llm = _FakeLLM(payload)  # the facade's lazy client slot (memory.py:68, :828-833)
+    return m
+
+
+def _episode(m: Memex, sid: str, *, project_id: str | None = PROJECT) -> None:
+    """A project episode, written directly: consolidation groups by the episode's namespace."""
+    node = m.wiki_store.write(
+        WikiNode(
+            type="episode",
+            title=f"Session {sid}",
+            body="we chose kafka",
+            id="",
+            session_id=sid,
+            scope="project" if project_id else "global",
+            project_id=project_id,
+        )
+    )
+    m.index_manager.update_record(node)
+
+
+class TestConsolidationGovernance:
+    def test_summary_is_active_and_entity_is_pending_by_default(self, data_dir: Path) -> None:
+        payload = (
+            '[{"type":"summary","title":"Week","body":"b","tags":[],'
+            '"importance":0.5,"links":[]},'
+            '{"type":"entity","title":"Kafka","body":"b","tags":[],'
+            '"importance":0.5,"links":[]}]'
+        )
+        m = _memex_with(data_dir, payload)
+        _episode(m, "s1")
+        m.consolidate(ConsolidateInput())
+        week = m.wiki_store.read("week")
+        kafka = m.wiki_store.read("kafka")
+        assert week is not None and week.status == "active"
+        assert kafka is not None and kafka.status == "pending"
+
+    def test_auto_makes_entity_active(self, data_dir: Path) -> None:
+        payload = (
+            '[{"type":"entity","title":"Kafka","body":"b","tags":[],"importance":0.5,"links":[]}]'
+        )
+        m = _memex_with(data_dir, payload, approval="auto")
+        _episode(m, "s1")
+        m.consolidate(ConsolidateInput())
+        kafka = m.wiki_store.read("kafka")
+        assert kafka is not None and kafka.status == "active"
+
+    def test_decision_written_only_when_enabled(self, data_dir: Path) -> None:
+        payload = (
+            '[{"type":"decision","title":"Choose Kafka","body":"b","tags":[],'
+            '"importance":0.5,"links":[]}]'
+        )
+        m = _memex_with(data_dir, payload)
+        _episode(m, "s1")
+        report = m.consolidate(ConsolidateInput())
+        assert report.nodes_created == [] and m.wiki_store.read("choose-kafka") is None
+        m.wiki_store.declare_type("decision", scope="project", project_id=PROJECT)
+        m.consolidate(ConsolidateInput())
+        node = m.wiki_store.read("choose-kafka")
+        assert node is not None and node.status == "pending" and node.source == "consolidation"
+        # Lands in the episode's namespace.
+        assert node.scope == "project" and node.project_id == PROJECT
+
+    def test_proposed_type_lands_as_a_draft(self, data_dir: Path) -> None:
+        payload = (
+            '[{"type":"entity","title":"Who edits","body":"b","tags":[],'
+            '"importance":0.5,"links":[],"proposed_type":"access-matrix"}]'
+        )
+        m = _memex_with(data_dir, payload)
+        _episode(m, "s1")
+        m.consolidate(ConsolidateInput())
+        types = m.wiki_store.declared_types(scope="project", project_id=PROJECT)
+        assert types["access-matrix"].kind == "draft" and types["access-matrix"].pages == 1
+        page = m.wiki_store.read("who-edits")
+        assert page is not None and page.type == "access-matrix" and page.status == "pending"
+        log = (types["access-matrix"].directory / "log.md").read_text()
+        assert "propose access-matrix by consolidation: sessions=s1 pages=1" in log
+        assert m.recall("who edits", include_inactive=False).hits == []
+
+    def test_bad_proposed_type_is_dropped_not_created(self, data_dir: Path) -> None:
+        payload = (
+            '[{"type":"entity","title":"X","body":"b","tags":[],'
+            '"importance":0.5,"links":[],"proposed_type":"Entities"}]'
+        )
+        m = _memex_with(data_dir, payload)
+        _episode(m, "s1")
+        m.consolidate(ConsolidateInput())
+        x_node = m.wiki_store.read("x")
+        assert x_node is not None and x_node.type == "entity"
+        # Exact-name check, not a glob: on a case-insensitive filesystem
+        # (macOS default) rglob("Entities") would also match the pre-existing
+        # built-in "entities" directory and pass for the wrong reason.
+        assert not any(p.name == "Entities" for p in (data_dir / "docs").rglob("*"))
+
+    def test_global_episodes_never_produce_catalogue_or_drafts(self, data_dir: Path) -> None:
+        payload = (
+            '[{"type":"entity","title":"X","body":"b","tags":[],'
+            '"importance":0.5,"links":[],"proposed_type":"story-map"}]'
+        )
+        m = _memex_with(data_dir, payload)
+        _episode(m, "s1", project_id=None)
+        m.consolidate(ConsolidateInput())
+        node = m.wiki_store.read("x")
+        assert node is not None and node.scope == "global" and node.type == "entity"
+        assert not list((data_dir / "docs" / "global").glob("story-map"))

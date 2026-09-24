@@ -53,7 +53,8 @@ class TestApprovalGate:  # AC-0007
         base = MemexConfig(data_dir=data_dir)
         return Memex(
             dataclasses.replace(
-                base, governance=dataclasses.replace(base.governance, approval="manual")
+                base,
+                governance=dataclasses.replace(base.governance, knowledge_approval="manual"),
             )
         )
 
@@ -81,9 +82,9 @@ class TestApprovalGate:  # AC-0007
         assert any(h.slug == stored.slug for h in m.recall("gated").hits)
         m.close()
 
-    def test_auto_is_default(self, data_dir: Path) -> None:
+    def test_manual_is_default(self, data_dir: Path) -> None:
         m = Memex(MemexConfig(data_dir=data_dir))
-        assert m.config.governance.approval == "auto"
+        assert m.config.governance.knowledge_approval == "manual"
         m.close()
 
     def test_invalid_approval_rejected(self, tmp_path: Path) -> None:
@@ -91,8 +92,8 @@ class TestApprovalGate:  # AC-0007
         from memex.infrastructure.config import ConfigLoader
 
         cfg = tmp_path / "memex.toml"
-        cfg.write_text('[governance]\napproval = "sometimes"\n', encoding="utf-8")
-        with pytest.raises(ConfigError, match="approval"):
+        cfg.write_text('[governance]\nknowledge_approval = "sometimes"\n', encoding="utf-8")
+        with pytest.raises(ConfigError, match="knowledge_approval"):
             ConfigLoader().load(cfg)
 
     def test_approve_non_pending_rejected(self, memex: Memex) -> None:

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from memex.domain.errors import ConfigError
+from memex.domain.types import KNOWLEDGE_APPROVAL_VALUES
 
 PROVIDERS: tuple[str, ...] = (
     "openai",
@@ -67,10 +68,10 @@ class ConsolidationConfig:
 
 @dataclass(frozen=True, slots=True)
 class GovernanceConfig:
-    """Approval policy: auto (default) or manual (consolidation output lands
-    status:pending, invisible to recall until approved)."""
+    """Memory is always active on write. Knowledge a model writes is pending
+    under ``manual`` (the default) and active under ``auto``."""
 
-    approval: str = "auto"
+    knowledge_approval: str = "manual"
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,10 +275,14 @@ class ConfigLoader:
 
     def _governance(self, raw: dict[str, object]) -> GovernanceConfig:
         table = _table(raw, "governance")
-        approval = str(_or(_get(table, "approval", str, "governance"), "auto"))
-        if approval not in ("auto", "manual"):
-            raise ConfigError(f"governance.approval must be auto|manual, got {approval!r}")
-        return GovernanceConfig(approval=approval)
+        if "approval" in table:
+            raise ConfigError(
+                "governance.approval was replaced by governance.knowledge_approval (manual | auto)"
+            )
+        value = str(_or(_get(table, "knowledge_approval", str, "governance"), "manual"))
+        if value not in KNOWLEDGE_APPROVAL_VALUES:
+            raise ConfigError(f"governance.knowledge_approval must be manual|auto, got {value!r}")
+        return GovernanceConfig(knowledge_approval=value)
 
     def _consolidation(self, raw: dict[str, object]) -> ConsolidationConfig:
         table = _table(raw, "consolidation")

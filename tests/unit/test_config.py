@@ -104,6 +104,25 @@ class TestLLMConfig:
         assert LLMConfig(provider="openai", api_base="http://x/v1").base_url == "http://x/v1"
 
 
+def test_knowledge_approval_replaces_approval(tmp_path: Path) -> None:
+    path = tmp_path / "memex.toml"
+    path.write_text('[governance]\nknowledge_approval = "auto"\n')
+    assert ConfigLoader().load(path).governance.knowledge_approval == "auto"
+
+
+def test_knowledge_approval_defaults_to_manual(tmp_path: Path) -> None:
+    path = tmp_path / "memex.toml"
+    path.write_text("")
+    assert ConfigLoader().load(path).governance.knowledge_approval == "manual"
+
+
+def test_old_approval_key_fails_loudly(tmp_path: Path) -> None:
+    path = tmp_path / "memex.toml"
+    path.write_text('[governance]\napproval = "manual"\n')
+    with pytest.raises(ConfigError, match=r"knowledge_approval.*manual.*auto"):
+        ConfigLoader().load(path)
+
+
 def test_pages_section_with_wiki_alias(tmp_path: Path) -> None:
     config_path = tmp_path / "memex.toml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
