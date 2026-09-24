@@ -194,6 +194,18 @@ class TestDeclaration:
             store.declare_type("scratch", scope="project", project_id=PROJECT)
         assert "scratch" not in store.declared_types(scope="project", project_id=PROJECT)
 
+    def test_scope_root_containers_are_not_type_directories(self, data_dir: Path) -> None:
+        # Regression: docs/global and docs/projects are scope-root
+        # containers, not type directories, even though each is a real
+        # directory on disk — the flat-layout allowance for pre-scoping
+        # data must not swallow them.
+        store = _store(data_dir)
+        _page(store, "entity", "Seed")  # creates docs/projects/<id>/...
+        assert store._is_type_dir(store.wiki_dir / "global") is False
+        assert store._is_type_dir(store.wiki_dir / "projects") is False
+        (store.wiki_dir / "entities").mkdir()
+        assert store._is_type_dir(store.wiki_dir / "entities") is True
+
     def test_global_scope_refuses_non_builtin(self, data_dir: Path) -> None:
         # Review Focus 5.
         with pytest.raises(WikiStoreError, match="global scope"):

@@ -342,18 +342,23 @@ class WikiStore:
     def _is_type_dir(self, directory: Path) -> bool:
         """A direct child of a scope root whose name is a built-in dir or a valid type name.
 
-        ``wiki_dir`` itself also counts: pre-project-scoping data (and tooling
-        such as ``eval/realistic.py``) writes flat ``docs/{type}/`` pages with
-        no ``global`` segment, and reading them back must keep working.
+        A directory directly under ``docs/`` — no ``global`` or project
+        segment — counts only when its name is one of the five built-in
+        directory names (``entities``, ``preferences``, ...): pre-project-
+        scoping data and tooling such as ``eval/realistic.py`` write flat
+        ``docs/{type}/`` pages that way, and reading them back must keep
+        working. ``docs/global`` and ``docs/projects`` are scope-root
+        *containers*, not type directories, so this flat allowance never
+        extends to an arbitrary name there. A declared (catalogue or
+        custom) type only ever lives under an actual scope root
+        (``docs/global/<type>`` or ``docs/projects/<project>/<type>``).
         """
         if not directory.is_dir() or directory.is_symlink():
             return False
         parent = directory.parent
-        if (
-            parent != self.wiki_dir
-            and parent != self.wiki_dir / "global"
-            and parent.parent != self._projects_dir()
-        ):
+        if parent == self.wiki_dir:
+            return directory.name in TYPE_DIRS.values()
+        if parent != self.wiki_dir / "global" and parent.parent != self._projects_dir():
             return False
         return is_type_directory_name(directory.name)
 
