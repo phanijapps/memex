@@ -21,7 +21,7 @@ from memex.domain.errors import IndexManagerError, WikiStoreError
 from memex.domain.frontmatter import parse_front_matter
 from memex.domain.models import RecallHit, RecallResult, WikiNode, utc_now_iso
 from memex.domain.reserved import classify_reserved_text
-from memex.domain.types import TYPE_DIRS
+from memex.domain.types import type_directory, type_for_heading
 from memex.infrastructure.search.bm25_retriever import _query_tokens, _stable_dedupe
 from memex.infrastructure.search.index_manager import check_slug
 from memex.infrastructure.store.wiki_store import _node_from_dict
@@ -41,7 +41,6 @@ _ROW = re.compile(
 )
 _HEADING = re.compile(r"^## (?P<name>.+)$")
 _UNESCAPE = re.compile(r"\\(.)")
-_HEADING_TYPES = {TYPE_DIRS[node_type].capitalize(): node_type for node_type in TYPE_DIRS}
 # Generous ceiling over the ~1 KB a stored page's front matter occupies; a
 # page that never closes its front matter is abandoned, not read through.
 _FRONT_MATTER_MAX_BYTES = 16 * 1024
@@ -204,9 +203,9 @@ class NavigationSearch:
         for line in text.splitlines():
             heading = _HEADING.match(line)
             if heading is not None:
-                node_type = _HEADING_TYPES.get(heading.group("name"))
+                node_type = type_for_heading(heading.group("name"))
                 continue
-            if node_type is None or parts[-1] != TYPE_DIRS[node_type]:
+            if node_type is None or parts[-1] != type_directory(node_type):
                 continue
             match = _ROW.match(line)
             if match is None:

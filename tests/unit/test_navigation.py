@@ -24,6 +24,8 @@ from memex.infrastructure.store.navigation import (
     NavigationReport,
 )
 
+PROJECT = "a" * 24
+
 
 def _memex(data_dir: Path) -> Memex:
     return Memex(ConfigLoader().load(data_dir=data_dir))
@@ -1043,3 +1045,101 @@ def test_unparsable_mutated_page_falls_back_to_full_render(data_dir: Path) -> No
     nodes = memex.wiki_store.scan_all(errors)
     assert len(errors) == 1
     assert memex.navigation.diagnose(nodes) == []
+
+
+def test_declared_types_get_their_own_heading_after_builtins(data_dir: Path) -> None:
+    """Each declared type gets its own directory and canonical heading; the
+    project index only links to it, exactly as a built-in type's does.
+
+    A directory holds pages of exactly one type (built-in or declared) under
+    the store's per-type layout, so ``render``'s NODE_TYPES-then-alphabetical
+    ordering contract is exercised separately below, against synthetic nodes
+    sharing one directory.
+    """
+    memex = _memex(data_dir)
+    memex.wiki_store.declare_type("decision", scope="project", project_id=PROJECT)
+    memex.wiki_store.declare_type("access-matrix", scope="project", project_id=PROJECT)
+    memex.write(
+        WriteInput(type="entity", title="Kafka", body="b", scope="project", project_id=PROJECT)
+    )
+    memex.write(
+        WriteInput(
+            type="decision", title="Choose Kafka", body="b", scope="project", project_id=PROJECT
+        )
+    )
+    memex.write(
+        WriteInput(
+            type="access-matrix", title="Who edits", body="b", scope="project", project_id=PROJECT
+        )
+    )
+    project_dir = memex.wiki_store.get_path("kafka").parent.parent
+    assert "## Entities" in (project_dir / "entities" / "index.md").read_text()
+    assert "## Access-matrix" in (project_dir / "access-matrix" / "index.md").read_text()
+    assert "## Decision" in (project_dir / "decision" / "index.md").read_text()
+    assert (
+        "- [Choose Kafka](choose-kafka.md)" in (project_dir / "decision" / "index.md").read_text()
+    )
+    _oracle_clean(memex)
+
+
+def test_render_orders_builtins_then_declared_types_alphabetically(data_dir: Path) -> None:
+    """render() lists NODE_TYPES sections first, then other present types
+    alphabetically; a real single-page splice against that shape preserves it.
+    """
+    memex = _memex(data_dir)
+    _write(memex, "Kafka")
+    directory = memex.wiki_store.wiki_dir / "global" / "entities"
+    synthetic = [
+        WikiNode(
+            type="entity",
+            title="Kafka",
+            body="b",
+            id="1",
+            slug="kafka",
+            file_path=str(directory / "kafka.md"),
+        ),
+        WikiNode(
+            type="decision",
+            title="Choose Kafka",
+            body="b",
+            id="2",
+            slug="choose-kafka",
+            file_path=str(directory / "choose-kafka.md"),
+        ),
+        WikiNode(
+            type="access-matrix",
+            title="Who edits",
+            body="b",
+            id="3",
+            slug="who-edits",
+            file_path=str(directory / "who-edits.md"),
+        ),
+    ]
+    text = memex.navigation.render(directory, synthetic)
+    assert text.index("## Entities") < text.index("## Access-matrix") < text.index("## Decision")
+    (directory / "index.md").write_text(text, encoding="utf-8")
+
+    _write(memex, "Second")
+    spliced = (directory / "index.md").read_text(encoding="utf-8")
+    assert (
+        spliced.index("## Entities")
+        < spliced.index("## Access-matrix")
+        < spliced.index("## Decision")
+    )
+    assert "[Kafka](kafka.md)" in spliced
+    assert "[Second](second.md)" in spliced
+    assert "[Who edits](who-edits.md)" in spliced
+    assert "[Choose Kafka](choose-kafka.md)" in spliced
+
+
+def test_declared_type_rows_survive_the_splice_oracle(data_dir: Path) -> None:
+    memex = _memex(data_dir)
+    memex.wiki_store.declare_type("rule", scope="project", project_id=PROJECT)
+    for i in range(4):
+        memex.write(
+            WriteInput(
+                type="rule", title=f"Rule {i}", body="b", scope="project", project_id=PROJECT
+            )
+        )
+    memex.forget("rule-1", mode="hard")
+    _oracle_clean(memex)

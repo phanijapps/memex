@@ -19,12 +19,11 @@ from typing import ClassVar
 from memex.domain.errors import MemexError
 from memex.domain.models import NODE_TYPES, WikiNode
 from memex.domain.reserved import OKF_VERSION, classify_reserved_text, is_structural
-from memex.domain.types import TYPE_DIRS
+from memex.domain.types import heading_for, is_type_directory_name, type_for_heading
 
 _INDEX_NAME = "index.md"
 _ESCAPE_CHARS = frozenset("\\`*_[]<>")
 _SUBDIR_HEADING = "Subdirectories"
-_SECTION_TYPES = {TYPE_DIRS[node_type].capitalize(): node_type for node_type in NODE_TYPES}
 
 # Entry lines of one index keyed by node type, then by slug: the parsed
 # form of an index that both the full render and the single-page splice
@@ -244,12 +243,13 @@ class NavigationGenerator:
 
     def _compose(self, directory: Path, entries: Entries, children: list[str]) -> str:
         lines = [self._heading(directory)]
-        for node_type in NODE_TYPES:
+        ordered = [*NODE_TYPES, *sorted(t for t in entries if t not in NODE_TYPES)]
+        for node_type in ordered:
             rows = entries.get(node_type)
             if not rows:
                 continue
             lines.append("")
-            lines.append(f"## {TYPE_DIRS[node_type].capitalize()}")
+            lines.append(f"## {heading_for(node_type)}")
             lines.extend(rows[slug] for slug in sorted(rows))
         if children:
             lines.append("")
@@ -274,15 +274,31 @@ class NavigationGenerator:
             return None
         entries: Entries = {}
         children: list[str] = []
-        section_order = [*_SECTION_TYPES, _SUBDIR_HEADING]
+        last_builtin = -1
+        last_custom = ""
+        seen_subdir = False
         pos = 1
         while pos < len(lines):
             if lines[pos] != "" or pos + 2 > len(lines) or not lines[pos + 1].startswith("## "):
                 return None
             heading = lines[pos + 1][3:]
-            if heading not in section_order:
-                return None
-            section_order = section_order[section_order.index(heading) + 1 :]
+            if seen_subdir:
+                return None  # nothing follows the subdirectory section
+            if heading == _SUBDIR_HEADING:
+                seen_subdir = True
+            else:
+                node_type = type_for_heading(heading)
+                if heading_for(node_type) != heading:
+                    return None  # not the canonical heading for that type
+                if node_type in NODE_TYPES:
+                    index = NODE_TYPES.index(node_type)
+                    if last_custom or index <= last_builtin:
+                        return None
+                    last_builtin = index
+                else:
+                    if node_type <= last_custom:
+                        return None
+                    last_custom = node_type
             pos += 2
             rows_start = pos
             while pos < len(lines) and lines[pos] != "":
@@ -297,7 +313,7 @@ class NavigationGenerator:
                     children.append(child)
                 else:
                     slug = link.removesuffix(".md")
-                    rows = entries.setdefault(_SECTION_TYPES[heading], {})
+                    rows = entries.setdefault(type_for_heading(heading), {})
                     if link != f"{slug}.md" or "/" in slug or slug in rows:
                         return None
                     rows[slug] = line
@@ -316,15 +332,14 @@ class NavigationGenerator:
         ``verify`` on every fresh store until an explicit rebuild runs.
         """
         needed: set[Path] = set()
-        for type_name in TYPE_DIRS.values():
-            for path in self._wiki_dir.rglob(f"{type_name}/*.md"):
-                if is_structural(path):
-                    continue
-                needed.add(self._wiki_dir)
-                current = path.parent
-                while current != self._wiki_dir:
-                    needed.add(current)
-                    current = current.parent
+        for path in self._wiki_dir.rglob("*.md"):
+            if is_structural(path) or not is_type_directory_name(path.parent.name):
+                continue
+            needed.add(self._wiki_dir)
+            current = path.parent
+            while current != self._wiki_dir:
+                needed.add(current)
+                current = current.parent
         return needed
 
     def _sweep_stale_tmps(self) -> None:
@@ -405,14 +420,13 @@ class NavigationGenerator:
         """
         if not directory.is_dir():
             return False
-        if directory.name in TYPE_DIRS.values() and any(
+        if is_type_directory_name(directory.name) and any(
             not is_structural(path) for path in directory.glob("*.md")
         ):
             return True
         return any(
-            not is_structural(path)
-            for type_name in TYPE_DIRS.values()
-            for path in directory.rglob(f"{type_name}/*.md")
+            not is_structural(path) and is_type_directory_name(path.parent.name)
+            for path in directory.rglob("*.md")
         )
 
     def _chain(self, changed_dir: Path) -> list[Path]:
