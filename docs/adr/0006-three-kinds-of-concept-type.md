@@ -96,11 +96,13 @@ declare, rename, or merge a type — those stay governed acts.
 
 `GovernanceConfig.knowledge_approval` replaces `approval`; a `memex.toml`
 carrying the retired `approval` key fails loading with the replacement name.
-The default, `manual`, is a behaviour change for existing stores: model-written
-knowledge (`entity`, `preference`, `procedure`, any catalogue or custom type)
-now lands `pending` where it previously landed `active` under the old
-`approval = "manual"` default for those same types — `summary` and `episode`
-are unaffected, since memory has always been automatic.
+The default changes from `auto` to `manual`, and that default change is the
+behaviour change for existing stores: model-written knowledge (`entity`,
+`preference`, `procedure`, any catalogue or custom type) now lands `pending`
+by default, where the old `auto` default landed it `active`. Under the old
+`approval = "manual"` setting itself nothing changes — that setting already
+sent the same model-written knowledge to `pending`. `summary` and `episode`
+are unaffected either way, since memory has always been automatic.
 
 Existing five-type stores need no migration: they are exactly the built-in
 case, since every built-in directory is still pre-created and no

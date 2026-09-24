@@ -129,9 +129,12 @@ Approval, rename, and merge of a draft are governance verbs and live in
 
 - [x] **AC-0001.** `memex types enable <catalogue> --scope project` and
       `memex types add <custom> --scope project [--description <text>]` create
-      `projects/<project>/<name>/` with a generated `index.md`, and
-      `memex types list --scope project` prints built-in, enabled catalogue,
-      declared custom, and draft types with page counts and kind.
+      `projects/<project>/<name>/` with a `log.md` declaration; its `index.md`
+      appears once the type's first page is written (navigation skips
+      page-less directories, so `memex verify` passes for a freshly declared,
+      still-empty type). `memex types list --scope project` prints built-in,
+      enabled catalogue, declared custom, draft, and withdrawn types with
+      page counts and kind.
 - [x] **AC-0002.** A name outside `[a-z][a-z0-9-]{0,63}`, or colliding with a
       built-in name or directory, a catalogue name, `index`, or `log`, is
       rejected with an error naming the rule.
@@ -141,10 +144,12 @@ Approval, rename, and merge of a draft are governance verbs and live in
 - [x] **AC-0004.** A `type` that is neither built-in, enabled, nor declared
       for that project is rejected before any file is written, on CLI, MCP,
       Python, and import, naming `memex types`.
-- [x] **AC-0005.** The project's `index.md` lists each non-built-in type
-      under a heading derived from its name, after the built-in headings, in
-      deterministic order, and the navigation-consistent verify check treats
-      those headings as it treats built-in ones.
+- [x] **AC-0005.** Each type directory's own `index.md` lists its pages under
+      one heading derived from the directory's name; the project's own
+      `index.md` lists every page-holding type directory, built-in or not,
+      under `## Subdirectories`, in deterministic (alphabetical) order. The
+      navigation-consistent verify check treats a declared type's index the
+      same way it treats a built-in one.
 - [x] **AC-0006.** `RecencyDecay.apply_decay` leaves every catalogue-type
       page's importance unchanged and reports zero changes for them.
 - [x] **AC-0007.** `memex recall --type <name>`, the MCP `node_type` filter,
@@ -211,3 +216,8 @@ Approval, rename, and merge of a draft are governance verbs and live in
   catalogue/custom types, belong here or in a later spec stayed decided as
   drafted: both are out of scope for this spec and are `memory-governance`'s
   and a follow-on's, respectively (see Follow-ons and "Ask first" above).
+- `memex types remove` does not erase a type: its directory and `log.md`
+  stay on disk, and `declared_types_in` reports it `kind: withdrawn`
+  instead of skipping it, so `memex verify`, export, and a subsequent
+  `memex types add`/`enable` all see an honest history rather than a type
+  that looks like it was never declared.

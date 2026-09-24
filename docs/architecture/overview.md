@@ -215,9 +215,11 @@ records the declaration: an append-only, body-only history of
 `declare`/`propose`/`remove` lines memex writes and never rewrites, kept
 structural by the same reserved-filename rule as `index.md` so it never
 enters the store scan, FTS index, or export. `WikiStore.write`, `get_path`,
-`move`, and `list` validate `type` against built-in ∪ enabled catalogue ∪
-declared custom for the caller's scope and project before any file is
-written, and `NavigationGenerator` orders headings built-in-first then
+and `move` validate `type` against built-in ∪ enabled catalogue ∪ declared
+custom for the caller's scope and project before any file is written; `list`
+validates only the type's shape, since it filters pages already on disk
+rather than deciding where a new one may be written. `NavigationGenerator`
+orders headings built-in-first then
 declared types alphabetically, falling back to a full render when a parsed
 index's section order is not canonical. `RecencyDecay.apply_decay` skips
 every catalogue page (`domain/types.py:decays`): the five built-ins and

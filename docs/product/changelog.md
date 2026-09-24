@@ -20,11 +20,18 @@ unreleased until a release tag is created.
   nominate an undeclared type as a `pending`-only draft (`proposed_type` in
   consolidation output, or deterministic, LLM-free `memex types suggest`
   over recurring page tags); every recall path excludes it until a person
-  accepts it. `memex verify` gains three checks: `types-match-directory`,
-  `types-declared`, `draft-types-pending`. Export carries each project's
-  enabled and declared types with descriptions; import declares them before
-  writing pages and warns `types_skipped=N` when a project directory's id
-  cannot be read.
+  accepts it. Consolidation groups episodes by their `(scope, project_id)`
+  namespace and makes one LLM call per project in a run (plus one for
+  global), so knowledge lands where its episodes came from. `memex types
+  remove --force` archives a type's pages and marks the type `withdrawn`
+  rather than erasing it: the directory and its `log.md` history stay on
+  disk, `memex types list` reports `kind: withdrawn`, and `memex types add`
+  or `memex types enable` re-declares it. `memex verify` gains three
+  checks: `types-match-directory`, `types-declared`, `draft-types-pending`.
+  Export carries each project's enabled and declared types with
+  descriptions (withdrawn types are skipped, like built-ins); import
+  declares them before writing pages and warns `types_skipped=N` when a
+  project directory's id cannot be read.
 - Link-graph expansion (OKF `read_concept`) in recall packing: `memex hook
   session-start` and task recall now append pages linked within one hop of
   the direct hits, in deterministic breadth-first order (alphabetical within

@@ -123,7 +123,19 @@ nomination, but every page in it is `pending`, so it is invisible to recall,
 injection, task recall, and navigation search until a person accepts it.
 Approving, renaming, or merging a draft is a governance verb
 (`memory-governance`). `memex types remove <name>` refuses while pages
-exist and names the count; `--force` archives them first.
+exist and names the count; `--force` archives them first, then marks the
+type **withdrawn**. Withdrawal is a state, not an erasure: the directory
+and its `log.md` history stay on disk, `memex types list` reports it as
+`kind: withdrawn`, writing to it is refused (naming the remedy), and
+`memex types add` or `memex types enable` re-declares it, bringing it back
+as a normal custom or catalogue type.
+
+`log.md` is memex's own append-only record — every declaration, proposal,
+and removal it writes is one line matching a fixed shape. Another tool may
+write into the same file; a line that does not match that shape (for
+example, free-text notes) is read as part of that file but never changes
+what memex believes is declared, so it can never forge or hide a
+declaration.
 
 **Links.** Reference other pages in any body with `[[slug]]` links
 (`[[Ruff Linter]]` normalizes to `[[ruff-linter]]`). Links are indexed both
