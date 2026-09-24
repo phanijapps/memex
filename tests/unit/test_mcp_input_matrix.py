@@ -78,10 +78,19 @@ class TestSchemaChannel:
             assert channel == "sdk-rejected", message
             assert "top_k" in message
 
-    def test_recall_node_type_enum(self, server: Any) -> None:
-        channel, message = call(server, "memex_recall", {"query": "x", "node_type": "folder"})
-        assert channel == "sdk-rejected"
-        assert "node_type" in message
+    def test_recall_node_type_shape(self, server: Any) -> None:
+        channel, payload = call(
+            server,
+            "memex_recall",
+            {
+                "query": "x",
+                "node_type": "Folder",
+                "questions": ["q"],
+                "project_id": "a" * 24,
+            },
+        )
+        assert channel == "result"
+        assert payload == {"error": "invalid arguments for this operation"}
 
     def test_forget_mode_enum(self, server: Any) -> None:
         channel, message = call(server, "memex_forget", {"slug": "x", "mode": "explode"})
@@ -189,7 +198,7 @@ class TestWireSchemas:
         props = schema["properties"]
         assert "scope" in schema["required"]
         assert set(props["scope"]["enum"]) == {"global", "project"}
-        assert props["type"]["enum"] == ["entity", "preference", "procedure", "summary", "episode"]
+        assert props["type"]["type"] == "string" and "enum" not in props["type"]
         assert props["importance"]["minimum"] == 0
         assert props["importance"]["maximum"] == 1
 
