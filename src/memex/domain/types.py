@@ -67,7 +67,9 @@ class TypeDeclaration:
 
 @dataclass(frozen=True, slots=True)
 class TypeContract:
-    """What a catalogue type promises: who may author it and whether it ages."""
+    """What a catalogue type promises: who may author it, and whether it ages
+    (``authorship`` is not enforced here — the memory-governance spec consumes it).
+    """
 
     name: str
     answers: str
@@ -126,8 +128,12 @@ def type_kind(name: str) -> Kind:
 
 
 def decays(name: str) -> bool:
-    """Catalogue knowledge is refined or superseded, never aged out."""
-    return name not in CATALOGUE
+    """Whether ``name`` ages on recency: the catalogue contract when one
+    exists (refined or superseded knowledge never ages out), ``True``
+    otherwise."""
+    if name in CATALOGUE:
+        return CATALOGUE[name].decays
+    return True
 
 
 def type_directory(name: str) -> str:

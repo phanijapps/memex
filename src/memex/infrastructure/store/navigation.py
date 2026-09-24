@@ -17,9 +17,9 @@ from pathlib import Path
 from typing import ClassVar
 
 from memex.domain.errors import MemexError
-from memex.domain.models import NODE_TYPES, WikiNode
+from memex.domain.models import WikiNode
 from memex.domain.reserved import OKF_VERSION, classify_reserved_text, is_structural
-from memex.domain.types import SUBDIRECTORIES_HEADING, heading_for, type_for_heading
+from memex.domain.types import NODE_TYPES, SUBDIRECTORIES_HEADING, heading_for, type_for_heading
 from memex.infrastructure.store.wiki_store import is_type_dir
 
 _INDEX_NAME = "index.md"

@@ -15,9 +15,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
 
-from memex.domain.types import DESCRIPTION_MAX_BYTES
-from memex.domain.types import NODE_TYPES as NODE_TYPES
-from memex.domain.types import validate_type_name as validate_type_name
+from memex.domain.types import DESCRIPTION_MAX_BYTES, validate_type_name
 
 PAGE_STATUSES: tuple[str, ...] = ("active", "pending", "superseded", "archived")
 
