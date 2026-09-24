@@ -420,7 +420,7 @@ class TestGuardrails:
             store.move("ruff-linter", "folder")
 
     def test_write_unknown_type(self, data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="type"):
+        with pytest.raises(WikiStoreError, match="undeclared type"):
             WikiStore(data_dir).write(make_node(type="folder"))
 
 
