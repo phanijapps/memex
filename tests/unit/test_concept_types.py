@@ -384,6 +384,27 @@ def test_project_directories_skips_symlinked_child(data_dir: Path) -> None:
     assert real.name in names
 
 
+def test_suggest_surfaces_unenabled_catalogue_name_but_not_after_enable(data_dir: Path) -> None:
+    m = Memex(MemexConfig(data_dir=data_dir))
+    for i in range(3):
+        m.write(
+            WriteInput(
+                type="entity",
+                title=f"Item {i}",
+                body="b",
+                tags=["decision"],
+                scope="project",
+                project_id=PROJECT,
+            )
+        )
+    suggestions = m.types.suggest(project_id=PROJECT)
+    assert ("decision", 3) in suggestions
+
+    m.wiki_store.declare_type("decision", scope="project", project_id=PROJECT)
+    suggestions_after = m.types.suggest(project_id=PROJECT)
+    assert not any(tag == "decision" for tag, _count in suggestions_after)
+
+
 def test_import_type_with_multiline_description_records_error(
     data_dir: Path, tmp_path: Path
 ) -> None:

@@ -5,10 +5,23 @@ from __future__ import annotations
 from collections import Counter
 
 from memex.domain.errors import WikiStoreError
-from memex.domain.types import CATALOGUE, TypeDeclaration, validate_type_name
+from memex.domain.reserved import RESERVED_SLUGS
+from memex.domain.types import (
+    CATALOGUE,
+    SUBDIRECTORIES_HEADING,
+    TYPE_DIRS,
+    TypeDeclaration,
+    validate_type_name,
+)
 from memex.infrastructure.search.index_manager import IndexManager
 from memex.infrastructure.store.navigation import NavigationGenerator
 from memex.infrastructure.store.wiki_store import WikiStore
+
+# Excluded from `suggest` alongside a project's declared types: directory
+# names and reserved filenames a tag could never legally become.
+_NEVER_SUGGESTIBLE = frozenset(
+    {*TYPE_DIRS.values(), *RESERVED_SLUGS, SUBDIRECTORIES_HEADING.lower()}
+)
 
 
 class ConceptTypes:
@@ -22,13 +35,26 @@ class ConceptTypes:
         self._navigation = navigation
 
     def add(self, name: str, *, project_id: str, description: str = "") -> TypeDeclaration:
-        if name in CATALOGUE:
-            raise WikiStoreError(f"{name!r} is a catalogue type; run memex types enable")
+        try:
+            validate_type_name(name, custom=True)
+        except ValueError as exc:
+            # A shape-invalid name never reaches an f-string; a catalogue
+            # collision gets the more useful "enable" hint instead of the
+            # generic collision message.
+            if name in CATALOGUE:
+                raise WikiStoreError(
+                    f"{name!r} is a catalogue type; run memex types enable"
+                ) from exc
+            raise WikiStoreError(str(exc)) from exc
         return self._store.declare_type(
             name, scope="project", project_id=project_id, description=description
         )
 
     def enable(self, name: str, *, project_id: str) -> TypeDeclaration:
+        try:
+            validate_type_name(name)  # shape only; never embeds a bad name below
+        except ValueError as exc:
+            raise WikiStoreError(str(exc)) from exc
         if name not in CATALOGUE:
             raise WikiStoreError(f"{name!r} is not a catalogue type; run memex types add")
         return self._store.declare_type(
@@ -36,6 +62,10 @@ class ConceptTypes:
         )
 
     def remove(self, name: str, *, project_id: str, force: bool = False) -> dict[str, object]:
+        try:
+            validate_type_name(name)  # shape only; never embeds a bad name below
+        except ValueError as exc:
+            raise WikiStoreError(str(exc)) from exc
         declared = self._store.declared_types(scope="project", project_id=project_id).get(name)
         if declared is None or declared.kind == "builtin":
             raise WikiStoreError(f"type {name!r} is not declared for this project")
@@ -55,7 +85,12 @@ class ConceptTypes:
         return {"removed": name, "archived": len(pages)}
 
     def suggest(self, *, project_id: str, min_pages: int = 3) -> list[tuple[str, int]]:
-        """Tags that recur across pages and are not types: concepts the store strains toward."""
+        """Tags that recur and are not yet a type for this project.
+
+        Shape-valid only; an un-enabled catalogue name (e.g. ``decision``)
+        qualifies, since "not yet a type for this project" is exactly what
+        it is until a person runs ``memex types enable``.
+        """
         known = set(self._store.declared_types(scope="project", project_id=project_id))
         counts: Counter[str] = Counter()
         for node in self._store.scan_all():
@@ -63,11 +98,12 @@ class ConceptTypes:
                 continue
             for tag in node.tags:
                 try:
-                    validate_type_name(tag, custom=True)
+                    validate_type_name(tag)
                 except ValueError:
                     continue
-                if tag not in known:
-                    counts[tag] += 1
+                if tag in known or tag in _NEVER_SUGGESTIBLE:
+                    continue
+                counts[tag] += 1
         return sorted(
             ((t, c) for t, c in counts.items() if c >= min_pages), key=lambda r: (-r[1], r[0])
         )

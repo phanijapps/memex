@@ -19,7 +19,7 @@ from memex.domain.models import (
     WriteInput,
 )
 from memex.domain.scrub import scrub
-from memex.domain.types import initial_status, type_kind, validate_type_name
+from memex.domain.types import initial_status, validate_type_name
 from memex.infrastructure.config import MemexConfig
 from memex.infrastructure.search.index_manager import IndexManager
 from memex.infrastructure.search.link_manager import LinkManager
@@ -167,10 +167,10 @@ class WikiConsolidator:
         shared across every group's call instead of re-scanning per group."""
         existing = [
             node
+            # Summaries are consolidated memory but still useful prompt
+            # context, so only episodes (the raw material) are excluded.
             for node in all_nodes
-            if type_kind(node.type) == "knowledge"
-            and node.scope == scope
-            and node.project_id == project_id
+            if node.type != "episode" and node.scope == scope and node.project_id == project_id
         ]
         allowed = set(BASE_ALLOWED_TYPES)
         if scope == "project":
@@ -191,6 +191,10 @@ class WikiConsolidator:
         report.llm_completion_tokens += response.completion_tokens
 
         session_ids = sorted({e.session_id for e in episodes if e.session_id})
+        # Every episode in a group shares scope and project_id (that is the
+        # grouping key); the label is carried per-page rather than per-node,
+        # so take the first one an episode actually set.
+        project_label = next((e.project_label for e in episodes if e.project_label), None)
         candidates = self._parse_nodes(response.text, allowed)
         proposed_counts = Counter(
             candidate.proposed_type for candidate in candidates if candidate.proposed_type
@@ -204,6 +208,7 @@ class WikiConsolidator:
                 report,
                 scope=scope,
                 project_id=project_id,
+                project_label=project_label,
                 session_ids=session_ids,
                 proposed_counts=proposed_counts,
             )
@@ -298,6 +303,7 @@ class WikiConsolidator:
         *,
         scope: str,
         project_id: str | None,
+        project_label: str | None,
         session_ids: list[str],
         proposed_counts: Counter[str],
     ) -> None:
@@ -326,6 +332,7 @@ class WikiConsolidator:
             harness=self._config.llm.provider,
             scope=scope,
             project_id=project_id,
+            project_label=project_label,
         )
         updating = bool(node.slug) and self._store.exists(node.slug)
         stored = self._store.write(node)

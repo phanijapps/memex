@@ -190,6 +190,45 @@ def test_prompt_contains_spec_sections(
     assert "sess-p" in fake.last_prompt
 
 
+def test_prompt_includes_existing_summary_as_context(
+    harness: tuple[WikiConsolidator, WikiStore, IndexManager, FakeLLM],
+) -> None:
+    """Summaries are consolidated memory but still useful prompt context;
+    _consolidate_group's existing-nodes filter must not drop them."""
+    consolidator, store, index, fake = harness
+    summary = store.write(WikiNode(type="summary", title="Weekly Recap", body="b", id=""))
+    index.update_record(summary)
+    _episode(store, index, "sess-q")
+
+    consolidator.consolidate(ConsolidateInput())
+    assert fake.last_prompt is not None
+    assert summary.slug in fake.last_prompt
+
+
+def test_consolidated_node_carries_episode_project_label(
+    harness: tuple[WikiConsolidator, WikiStore, IndexManager, FakeLLM],
+) -> None:
+    consolidator, store, index, _fake = harness
+    project_id = "a" * 24
+    episode = store.write(
+        WikiNode(
+            type="episode",
+            title="Session labeled",
+            body="The user said: I prefer ruff over flake8.",
+            id="",
+            session_id="sess-label",
+            scope="project",
+            project_id=project_id,
+            project_label="Acme Web",
+        )
+    )
+    index.update_record(episode)
+
+    consolidator.consolidate(ConsolidateInput())
+    node = store.read("user-prefers-ruff")
+    assert node is not None and node.project_label == "Acme Web"
+
+
 def test_client_factory_builds_openai_compat(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
