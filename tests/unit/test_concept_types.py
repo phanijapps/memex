@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from memex.domain import types as T
+from memex.domain.errors import WikiStoreError
 from memex.domain.models import TaskRecallInput, WikiNode, WriteInput
+from memex.domain.types import TYPE_DIRS
+from memex.infrastructure.store.wiki_store import WikiStore
 
 
 class TestTypeNames:
@@ -111,3 +116,126 @@ class TestModelsAcceptShapeValidTypes:
     def test_task_recall_filter_accepts_declared_types(self) -> None:
         request = TaskRecallInput(goal="g", questions=["q"], project_id=PROJECT, node_type="rule")
         assert request.node_type == "rule"
+
+
+PROJECT_B = "b" * 24
+
+
+def _store(data_dir: Path) -> WikiStore:
+    return WikiStore(data_dir)
+
+
+def _page(
+    store: WikiStore, node_type: str, title: str, *, project_id: str = PROJECT, **kw: object
+) -> WikiNode:
+    return store.write(
+        WikiNode(
+            type=node_type,
+            title=title,
+            body="b",
+            id="",
+            scope="project",
+            project_id=project_id,
+            **kw,  # type: ignore[arg-type]
+        )
+    )
+
+
+class TestDeclaration:
+    def test_enable_catalogue_type_creates_directory_and_log(self, data_dir: Path) -> None:
+        store = _store(data_dir)
+        declared = store.declare_type(
+            "decision", scope="project", project_id=PROJECT, description="Why we chose."
+        )
+        assert declared.kind == "catalogue" and declared.directory.is_dir()
+        log = (declared.directory / "log.md").read_text()
+        assert " declare decision by user: Why we chose." in log
+        assert not log.startswith("---")  # body-only, so it stays structural
+
+    def test_add_custom_type(self, data_dir: Path) -> None:
+        store = _store(data_dir)
+        declared = store.declare_type("access-matrix", scope="project", project_id=PROJECT)
+        assert declared.kind == "custom"
+        assert store.declared_types(scope="project", project_id=PROJECT)["access-matrix"].pages == 0
+
+    def test_list_shows_builtins_catalogue_custom_and_counts(self, data_dir: Path) -> None:
+        store = _store(data_dir)
+        store.declare_type("rule", scope="project", project_id=PROJECT)
+        _page(store, "rule", "Never force push")
+        _page(store, "entity", "Kafka")
+        types = store.declared_types(scope="project", project_id=PROJECT)
+        assert types["entity"].kind == "builtin" and types["entity"].pages == 1
+        assert types["rule"].kind == "catalogue" and types["rule"].pages == 1
+        assert set(types) >= {"entity", "preference", "procedure", "summary", "episode", "rule"}
+
+    def test_draft_declaration_is_marked_and_logged(self, data_dir: Path) -> None:
+        store = _store(data_dir)
+        declared = store.declare_type(
+            "story-map",
+            scope="project",
+            project_id=PROJECT,
+            actor="consolidation",
+            draft=True,
+            description="sessions=s1,s2 pages=3",
+        )
+        assert declared.kind == "draft"
+        assert (
+            " propose story-map by consolidation: sessions=s1,s2 pages=3"
+            in (declared.directory / "log.md").read_text()
+        )
+
+    def test_stray_directory_without_log_is_refused(self, data_dir: Path) -> None:
+        # Review Focus 1.
+        store = _store(data_dir)
+        _page(store, "entity", "Seed")  # creates the project directory
+        project_dir = store.get_path("seed").parent.parent
+        (project_dir / "scratch").mkdir()
+        with pytest.raises(WikiStoreError, match="exists without a declaration"):
+            store.declare_type("scratch", scope="project", project_id=PROJECT)
+        assert "scratch" not in store.declared_types(scope="project", project_id=PROJECT)
+
+    def test_global_scope_refuses_non_builtin(self, data_dir: Path) -> None:
+        # Review Focus 5.
+        with pytest.raises(WikiStoreError, match="global scope"):
+            _store(data_dir).declare_type("rule", scope="global", project_id=None)
+
+
+class TestWritesRespectDeclarations:
+    def test_write_to_enabled_type_lands_in_its_directory(self, data_dir: Path) -> None:
+        store = _store(data_dir)
+        store.declare_type("decision", scope="project", project_id=PROJECT)
+        node = _page(store, "decision", "Choose Kafka")
+        assert Path(node.file_path or "").parent.name == "decision"
+        read = store.read("choose-kafka")
+        assert read is not None and read.type == "decision"
+
+    def test_undeclared_type_is_rejected_before_writing(self, data_dir: Path) -> None:
+        store = _store(data_dir)
+        with pytest.raises(WikiStoreError, match=r"undeclared type 'decision'.*memex types"):
+            _page(store, "decision", "Choose Kafka")
+        assert not list((data_dir / "docs").rglob("choose-kafka.md"))
+
+    def test_declaration_is_per_project(self, data_dir: Path) -> None:
+        # Review Focus 2.
+        store = _store(data_dir)
+        store.declare_type("decision", scope="project", project_id=PROJECT)
+        with pytest.raises(WikiStoreError, match="undeclared type"):
+            _page(store, "decision", "Elsewhere", project_id=PROJECT_B)
+
+    def test_scan_move_and_find_cover_declared_directories(self, data_dir: Path) -> None:
+        store = _store(data_dir)
+        store.declare_type("decision", scope="project", project_id=PROJECT)
+        store.declare_type("access-matrix", scope="project", project_id=PROJECT)
+        _page(store, "decision", "Choose Kafka")
+        assert [n.slug for n in store.scan_all()] == ["choose-kafka"]
+        moved = store.move("choose-kafka", "access-matrix")
+        assert Path(moved.file_path or "").parent.name == "access-matrix"
+        assert store.read("choose-kafka") is not None
+        with pytest.raises(WikiStoreError, match="undeclared type"):
+            store.move("choose-kafka", "policy")
+
+    def test_five_type_store_is_unchanged(self, data_dir: Path) -> None:
+        store = _store(data_dir)
+        node = store.write(WikiNode(type="entity", title="Global thing", body="b", id=""))
+        assert Path(node.file_path or "").parts[-3:-1] == ("global", "entities")
+        assert store.declared_types(scope="global", project_id=None).keys() == set(TYPE_DIRS)

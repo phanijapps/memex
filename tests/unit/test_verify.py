@@ -26,7 +26,7 @@ def test_healthy_store_passes(memex: Memex) -> None:
 
 
 def test_malformed_page_fails_health(memex: Memex, data_dir: Path) -> None:
-    bad = data_dir / "docs/entities/broken.md"
+    bad = data_dir / "docs/global/entities/broken.md"
     bad.parent.mkdir(parents=True, exist_ok=True)
     bad.write_text("garbage\n", encoding="utf-8")
 
