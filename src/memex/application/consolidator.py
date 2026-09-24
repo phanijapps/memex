@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
@@ -146,8 +145,9 @@ class WikiConsolidator:
         for episode in episodes:
             groups.setdefault((episode.scope, episode.project_id), []).append(episode)
 
+        all_nodes = self._store.list()
         for (scope, project_id), group_episodes in groups.items():
-            self._consolidate_group(scope, project_id, group_episodes, report)
+            self._consolidate_group(scope, project_id, group_episodes, all_nodes, report)
         return report
 
     def _consolidate_group(
@@ -155,14 +155,18 @@ class WikiConsolidator:
         scope: str,
         project_id: str | None,
         episodes: list[WikiNode],
+        all_nodes: list[WikiNode],
         report: ConsolidationReport,
     ) -> None:
         """Run the prompt -> parse -> store loop for one ``(scope, project_id)``
         namespace, so consolidated knowledge lands where its episodes came
-        from instead of always in global (``docs/v1_enhance.md`` B7)."""
+        from instead of always in global (``docs/v1_enhance.md`` B7).
+
+        ``all_nodes`` is the whole store, listed once in ``consolidate`` and
+        shared across every group's call instead of re-scanning per group."""
         existing = [
             node
-            for node in self._store.list()
+            for node in all_nodes
             if type_kind(node.type) == "knowledge"
             and node.scope == scope
             and node.project_id == project_id
@@ -187,9 +191,7 @@ class WikiConsolidator:
 
         session_ids = sorted({e.session_id for e in episodes if e.session_id})
         candidates = self._parse_nodes(response.text, allowed)
-        proposed_counts = Counter(
-            candidate.proposed_type for candidate in candidates if candidate.proposed_type
-        )
+        proposed_counts = self._distinct_title_counts(candidates)
         for candidate in candidates:
             report.nodes_created.append(candidate)
             if report.dry_run:
@@ -202,6 +204,27 @@ class WikiConsolidator:
                 session_ids=session_ids,
                 proposed_counts=proposed_counts,
             )
+
+    @staticmethod
+    def _distinct_title_counts(candidates: list[WriteInput]) -> dict[str, int]:
+        """Distinct candidate titles proposing each new type, in this run.
+
+        Nomination evidence, not a live page count (``declared_types().pages``
+        is live and reflects what actually landed on disk, one entry per
+        stored page even when the store slugged a title collision as
+        ``-2`` rather than merging the two): two candidates that share a
+        title are one nomination, not two, and a candidate is counted here
+        whether or not its later write succeeds. Titles are normalized
+        (``strip().casefold()``) so near-duplicates from the model are not
+        double-counted.
+        """
+        titles_by_type: dict[str, set[str]] = {}
+        for candidate in candidates:
+            if candidate.proposed_type:
+                titles_by_type.setdefault(candidate.proposed_type, set()).add(
+                    candidate.title.strip().casefold()
+                )
+        return {name: len(titles) for name, titles in titles_by_type.items()}
 
     def _select_episodes(self, input: ConsolidateInput) -> list[WikiNode]:
         if input.episode_ids:
@@ -294,7 +317,7 @@ class WikiConsolidator:
         scope: str,
         project_id: str | None,
         session_ids: list[str],
-        proposed_counts: Counter[str],
+        proposed_counts: dict[str, int],
     ) -> None:
         node_type = candidate.type
         status = initial_status(candidate.type, "consolidation", self._knowledge_approval)
@@ -341,7 +364,9 @@ class WikiConsolidator:
     ) -> None:
         """Found ``name`` as a project draft type the first time this run
         nominates it; a second candidate proposing the same name in the same
-        run reuses the declaration already made."""
+        run reuses the declaration already made. ``pages`` is the number of
+        distinct candidate pages nominated in that run (see
+        ``_distinct_title_counts``), not a live count of pages on disk."""
         declared = self._store.declared_types(scope="project", project_id=project_id)
         if name in declared:
             return

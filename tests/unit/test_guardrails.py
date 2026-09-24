@@ -45,7 +45,7 @@ def test_turn_entry_from_dict_requires_fields() -> None:
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"type": "folder"},
+        {"type": "Folder"},
         {"title": "  "},
         {"importance": 1.5},
         {"importance": -0.1},

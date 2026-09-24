@@ -26,7 +26,6 @@ PAGE_STATUSES: tuple[str, ...] = ("active", "pending", "superseded", "archived")
 DEFAULT_REL = "relates-to"
 BODY_REL = "mentions"
 RELATION_FIELDS: tuple[str, ...] = ("parent", "supersedes", "implements", "depends_on")
-NON_EPISODE_TYPES: tuple[str, ...] = tuple(t for t in NODE_TYPES if t != "episode")
 TURN_ROLES: tuple[str, ...] = ("user", "agent", "tool")
 FORGET_MODES: tuple[str, ...] = ("hard", "soft", "decay")
 

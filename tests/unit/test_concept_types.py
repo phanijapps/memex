@@ -379,6 +379,29 @@ class TestConsolidationGovernance:
         assert "propose access-matrix by consolidation: sessions=s1 pages=1" in log
         assert m.recall("who edits", include_inactive=False).hits == []
 
+    def test_duplicate_titles_count_once_in_the_nomination_line(self, data_dir: Path) -> None:
+        # Two candidates that share a title are one nomination, not two: the
+        # propose line counts distinct candidate titles, not raw candidates,
+        # even though each candidate still lands its own page (wiki_store
+        # slugs a title collision as "-2" rather than merging the two).
+        payload = (
+            '[{"type":"entity","title":"Who edits","body":"b1","tags":[],'
+            '"importance":0.5,"links":[],"proposed_type":"access-matrix"},'
+            '{"type":"entity","title":"Who edits","body":"b2","tags":[],'
+            '"importance":0.5,"links":[],"proposed_type":"access-matrix"}]'
+        )
+        m = _memex_with(data_dir, payload)
+        _episode(m, "s1")
+        m.consolidate(ConsolidateInput())
+        types = m.wiki_store.declared_types(scope="project", project_id=PROJECT)
+        log = (types["access-matrix"].directory / "log.md").read_text()
+        assert "propose access-matrix by consolidation: sessions=s1 pages=1" in log
+        # Nomination evidence (log.md) and the live page count can legitimately
+        # diverge: both candidates really did land, under distinct slugs.
+        assert types["access-matrix"].pages == 2
+        assert m.wiki_store.read("who-edits") is not None
+        assert m.wiki_store.read("who-edits-2") is not None
+
     def test_bad_proposed_type_is_dropped_not_created(self, data_dir: Path) -> None:
         payload = (
             '[{"type":"entity","title":"X","body":"b","tags":[],'
