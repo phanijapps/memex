@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
@@ -191,7 +192,9 @@ class WikiConsolidator:
 
         session_ids = sorted({e.session_id for e in episodes if e.session_id})
         candidates = self._parse_nodes(response.text, allowed)
-        proposed_counts = self._distinct_title_counts(candidates)
+        proposed_counts = Counter(
+            candidate.proposed_type for candidate in candidates if candidate.proposed_type
+        )
         for candidate in candidates:
             report.nodes_created.append(candidate)
             if report.dry_run:
@@ -204,27 +207,6 @@ class WikiConsolidator:
                 session_ids=session_ids,
                 proposed_counts=proposed_counts,
             )
-
-    @staticmethod
-    def _distinct_title_counts(candidates: list[WriteInput]) -> dict[str, int]:
-        """Distinct candidate titles proposing each new type, in this run.
-
-        Nomination evidence, not a live page count (``declared_types().pages``
-        is live and reflects what actually landed on disk, one entry per
-        stored page even when the store slugged a title collision as
-        ``-2`` rather than merging the two): two candidates that share a
-        title are one nomination, not two, and a candidate is counted here
-        whether or not its later write succeeds. Titles are normalized
-        (``strip().casefold()``) so near-duplicates from the model are not
-        double-counted.
-        """
-        titles_by_type: dict[str, set[str]] = {}
-        for candidate in candidates:
-            if candidate.proposed_type:
-                titles_by_type.setdefault(candidate.proposed_type, set()).add(
-                    candidate.title.strip().casefold()
-                )
-        return {name: len(titles) for name, titles in titles_by_type.items()}
 
     def _select_episodes(self, input: ConsolidateInput) -> list[WikiNode]:
         if input.episode_ids:
@@ -317,7 +299,7 @@ class WikiConsolidator:
         scope: str,
         project_id: str | None,
         session_ids: list[str],
-        proposed_counts: dict[str, int],
+        proposed_counts: Counter[str],
     ) -> None:
         node_type = candidate.type
         status = initial_status(candidate.type, "consolidation", self._knowledge_approval)
@@ -364,9 +346,10 @@ class WikiConsolidator:
     ) -> None:
         """Found ``name`` as a project draft type the first time this run
         nominates it; a second candidate proposing the same name in the same
-        run reuses the declaration already made. ``pages`` is the number of
-        distinct candidate pages nominated in that run (see
-        ``_distinct_title_counts``), not a live count of pages on disk."""
+        run reuses the declaration already made. ``pages`` is nomination
+        evidence recorded before the pages exist: the number of candidate
+        pages nominated for ``name`` in this run, not a live count of pages
+        on disk."""
         declared = self._store.declared_types(scope="project", project_id=project_id)
         if name in declared:
             return

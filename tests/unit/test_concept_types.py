@@ -379,11 +379,11 @@ class TestConsolidationGovernance:
         assert "propose access-matrix by consolidation: sessions=s1 pages=1" in log
         assert m.recall("who edits", include_inactive=False).hits == []
 
-    def test_duplicate_titles_count_once_in_the_nomination_line(self, data_dir: Path) -> None:
-        # Two candidates that share a title are one nomination, not two: the
-        # propose line counts distinct candidate titles, not raw candidates,
-        # even though each candidate still lands its own page (wiki_store
-        # slugs a title collision as "-2" rather than merging the two).
+    def test_same_titled_candidates_each_become_a_page(self, data_dir: Path) -> None:
+        # Two candidates that share a title still land as two pages: the
+        # store slugs a title collision as "-2" rather than merging the two,
+        # so the propose line's raw candidate count matches what the run
+        # actually writes.
         payload = (
             '[{"type":"entity","title":"Who edits","body":"b1","tags":[],'
             '"importance":0.5,"links":[],"proposed_type":"access-matrix"},'
@@ -395,12 +395,12 @@ class TestConsolidationGovernance:
         m.consolidate(ConsolidateInput())
         types = m.wiki_store.declared_types(scope="project", project_id=PROJECT)
         log = (types["access-matrix"].directory / "log.md").read_text()
-        assert "propose access-matrix by consolidation: sessions=s1 pages=1" in log
-        # Nomination evidence (log.md) and the live page count can legitimately
-        # diverge: both candidates really did land, under distinct slugs.
+        assert "propose access-matrix by consolidation: sessions=s1 pages=2" in log
         assert types["access-matrix"].pages == 2
-        assert m.wiki_store.read("who-edits") is not None
-        assert m.wiki_store.read("who-edits-2") is not None
+        who_edits = m.wiki_store.read("who-edits")
+        who_edits_2 = m.wiki_store.read("who-edits-2")
+        assert who_edits is not None and who_edits.status == "pending"
+        assert who_edits_2 is not None and who_edits_2.status == "pending"
 
     def test_bad_proposed_type_is_dropped_not_created(self, data_dir: Path) -> None:
         payload = (
