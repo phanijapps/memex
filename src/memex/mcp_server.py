@@ -25,7 +25,7 @@ from pydantic import Field
 
 from memex.application.dto import to_jsonable
 from memex.application.memory import Memex
-from memex.domain.errors import MemexError
+from memex.domain.errors import MemexError, WikiStoreError
 from memex.domain.models import (
     ConsolidateInput,
     ConsolidateMode,
@@ -73,6 +73,11 @@ def _sanitize(exc: Exception) -> str:
         return "invalid arguments for this operation"
     if isinstance(exc, FileExistsError):
         return "resource already exists"
+    if isinstance(exc, WikiStoreError) and str(exc).startswith("undeclared type "):
+        # Names a rejected type by name only (already shape-validated, never
+        # a path or page body), so a caller can self-correct without a
+        # round trip through `memex types list`.
+        return str(exc)
     return "operation failed"
 
 

@@ -264,11 +264,13 @@ def test_forget_missing_slug_errors(data_dir: Path, capsys: pytest.CaptureFixtur
 
 
 def test_invalid_write_type_rejected(data_dir: Path) -> None:
-    with pytest.raises(SystemExit) as excinfo:
-        cli.main(
-            ["--data-dir", str(data_dir), "write", "--type", "bogus", "--title", "x", "--body", "y"]
-        )
-    assert excinfo.value.code == 2  # argparse choices
+    # `--type` is a free string now (validated for shape and declaration
+    # downstream, not a closed argparse `choices=`), so an unknown type is a
+    # domain rejection (exit 1), not an argparse SystemExit (exit 2).
+    code = cli.main(
+        ["--data-dir", str(data_dir), "write", "--type", "bogus", "--title", "x", "--body", "y"]
+    )
+    assert code == 1
 
 
 def test_info(data_dir: Path, capture: dict[str, str]) -> None:
