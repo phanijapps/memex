@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from memex.domain import types as T
+from memex.domain.models import TaskRecallInput, WikiNode, WriteInput
 
 
 class TestTypeNames:
@@ -85,3 +86,28 @@ class TestInitialStatus:
     def test_unknown_policy_value_is_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"manual|auto"):
             T.initial_status("rule", "user", "sometimes")
+
+
+PROJECT = "a" * 24
+
+
+class TestModelsAcceptShapeValidTypes:
+    def test_write_input_accepts_a_declared_looking_type(self) -> None:
+        node = WriteInput(
+            type="decision", title="Choose X", body="b", scope="project", project_id=PROJECT
+        )
+        assert node.type == "decision"
+
+    def test_wiki_node_accepts_a_custom_type(self) -> None:
+        node = WikiNode(
+            type="access-matrix", title="t", body="b", id="1", scope="project", project_id=PROJECT
+        )
+        assert node.type == "access-matrix"
+
+    def test_bad_shape_still_rejected_at_the_model(self) -> None:
+        with pytest.raises(ValueError, match=r"\[a-z\]"):
+            WriteInput(type="Decision", title="t", body="b")
+
+    def test_task_recall_filter_accepts_declared_types(self) -> None:
+        request = TaskRecallInput(goal="g", questions=["q"], project_id=PROJECT, node_type="rule")
+        assert request.node_type == "rule"

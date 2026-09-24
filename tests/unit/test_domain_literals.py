@@ -5,10 +5,6 @@ import typing
 from memex.domain import models
 
 
-def test_node_type_literal_matches_constant() -> None:
-    assert set(typing.get_args(models.NodeType)) == set(models.NODE_TYPES)
-
-
 def test_turn_role_literal_matches_constant() -> None:
     assert set(typing.get_args(models.TurnRole)) == set(models.TURN_ROLES)
 
