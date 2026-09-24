@@ -21,9 +21,10 @@ from memex.domain.errors import IndexManagerError, WikiStoreError
 from memex.domain.frontmatter import parse_front_matter
 from memex.domain.models import RecallHit, RecallResult, WikiNode, utc_now_iso
 from memex.domain.reserved import classify_reserved_text
+from memex.domain.types import TYPE_DIRS
 from memex.infrastructure.search.bm25_retriever import _query_tokens, _stable_dedupe
 from memex.infrastructure.search.index_manager import check_slug
-from memex.infrastructure.store.wiki_store import TYPE_DIRS, _node_from_dict
+from memex.infrastructure.store.wiki_store import _node_from_dict
 
 SEARCH_ENGINE = "navigation-index-md"
 FALLBACK_SEARCH_ENGINE = "navigation-index-md-fallback"

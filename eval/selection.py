@@ -57,9 +57,10 @@ from memex.application.memory import Memex
 from memex.domain.frontmatter import serialize_front_matter
 from memex.domain.models import RecallHit, WikiNode, utc_now_iso
 from memex.domain.slugs import unique_slug
+from memex.domain.types import TYPE_DIRS
 from memex.infrastructure.config import MemexConfig
 from memex.infrastructure.search.bm25_retriever import BM25Retriever, production_ranker_metadata
-from memex.infrastructure.store.wiki_store import TYPE_DIRS, hash_body, node_front_matter
+from memex.infrastructure.store.wiki_store import hash_body, node_front_matter
 
 type CandidateName = Literal["field-channel-rrf-k60", "semantic-and-fallback-fts5", "rgapi-0.1.22"]
 type WorkloadName = Literal["realistic", "gutenberg", "salesforce"]

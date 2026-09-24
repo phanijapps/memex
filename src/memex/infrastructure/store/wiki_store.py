@@ -23,14 +23,7 @@ from memex.domain.models import (
 )
 from memex.domain.reserved import OKF_VERSION, RESERVED_SLUGS, is_structural
 from memex.domain.slugs import derive_slug, unique_slug
-
-TYPE_DIRS: dict[str, str] = {
-    "entity": "entities",
-    "preference": "preferences",
-    "procedure": "procedures",
-    "summary": "summaries",
-    "episode": "episodes",
-}
+from memex.domain.types import TYPE_DIRS
 
 _SAFE_COMPONENT = re.compile(r"[a-z0-9][a-z0-9-]{0,127}")
 
