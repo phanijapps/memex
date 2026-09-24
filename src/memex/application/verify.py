@@ -164,16 +164,12 @@ def type_checks(memex: Memex, nodes: list[WikiNode]) -> list[dict[str, object]]:
 
     undeclared: list[str] = []
     non_pending: list[str] = []
-    projects_dir = memex.wiki_store.wiki_dir / "projects"
-    if projects_dir.is_dir():
-        for project_dir in sorted(
-            p for p in projects_dir.iterdir() if p.is_dir() and not p.is_symlink()
-        ):
-            proj_undeclared, proj_non_pending = _undeclared_and_non_pending(
-                memex, project_dir, nodes_by_dir
-            )
-            undeclared.extend(proj_undeclared)
-            non_pending.extend(proj_non_pending)
+    for project_dir in memex.wiki_store.project_directories():
+        proj_undeclared, proj_non_pending = _undeclared_and_non_pending(
+            memex, project_dir, nodes_by_dir
+        )
+        undeclared.extend(proj_undeclared)
+        non_pending.extend(proj_non_pending)
 
     mismatch_label = "pages whose type differs from their directory"
     declare_label = "project directories without a declaration"

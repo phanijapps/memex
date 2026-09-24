@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections import Counter
 
 from memex.domain.errors import WikiStoreError
-from memex.domain.types import CATALOGUE, validate_type_name
+from memex.domain.types import CATALOGUE, TypeDeclaration, validate_type_name
 from memex.infrastructure.search.index_manager import IndexManager
 from memex.infrastructure.store.navigation import NavigationGenerator
-from memex.infrastructure.store.wiki_store import TypeDeclaration, WikiStore
+from memex.infrastructure.store.wiki_store import WikiStore
 
 
 class ConceptTypes:
@@ -39,6 +39,8 @@ class ConceptTypes:
         declared = self._store.declared_types(scope="project", project_id=project_id).get(name)
         if declared is None or declared.kind == "builtin":
             raise WikiStoreError(f"type {name!r} is not declared for this project")
+        if declared.kind == "withdrawn":
+            raise WikiStoreError(f"type {name!r} is already withdrawn")
         pages = [n for n in self._store.scan_dir(declared.directory) if n.status != "archived"]
         if pages and not force:
             raise WikiStoreError(

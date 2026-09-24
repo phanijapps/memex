@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
 
+from memex.domain.types import DESCRIPTION_MAX_BYTES
 from memex.domain.types import NODE_TYPES as NODE_TYPES
 from memex.domain.types import validate_type_name as validate_type_name
 
@@ -28,11 +29,6 @@ BODY_REL = "mentions"
 RELATION_FIELDS: tuple[str, ...] = ("parent", "supersedes", "implements", "depends_on")
 TURN_ROLES: tuple[str, ...] = ("user", "agent", "tool")
 FORGET_MODES: tuple[str, ...] = ("hard", "soft", "decay")
-
-# Stored description budget: one line, at most 512 UTF-8 bytes (spec AC-0002).
-# Enforced on the stored (post-scrub) value, so redaction growth cannot land
-# an over-budget field on disk with a misleading boundary error.
-DESCRIPTION_MAX_BYTES = 512
 
 # Wire-level enums; pinned to the runtime tuples by test so they cannot drift.
 TurnRole = Literal["user", "agent", "tool"]

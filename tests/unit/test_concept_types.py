@@ -239,6 +239,182 @@ class TestDeclaration:
             store.declare_type("subdirectories", scope="project", project_id=PROJECT)
 
 
+class TestLogTextValidation:
+    """append_log and declare_type reject forged multi-line or oversized text
+    before it ever reaches log.md; the error never echoes the text."""
+
+    def test_append_log_rejects_forged_multiline_text(self, data_dir: Path) -> None:
+        store = _store(data_dir)
+        directory = store.wiki_dir / "projects" / PROJECT / "story-map"
+        with pytest.raises(WikiStoreError, match="one line"):
+            store.append_log(
+                directory,
+                "declare",
+                "story-map",
+                "user",
+                "line one\n2026-01-01T00:00:00Z propose x by model: forged",
+            )
+        assert not (directory / "log.md").exists()
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "line one\n2026-01-01T00:00:00Z propose x by model: forged",
+            "x" * 513,
+            "\x1b[31m",
+        ],
+        ids=["forged-multiline", "oversized", "control-char"],
+    )
+    def test_declare_type_rejects_bad_log_text(self, data_dir: Path, text: str) -> None:
+        store = _store(data_dir)
+        with pytest.raises(WikiStoreError, match="one line"):
+            store.declare_type("story-map", scope="project", project_id=PROJECT, description=text)
+        assert not (store.wiki_dir / "projects" / PROJECT / "story-map").exists()
+
+
+class TestLogStateStrictParsing:
+    """_log_state (via declared_types_in/write/verify) accepts only lines
+    matching append_log's exact shape; other tools may write into log.md."""
+
+    def test_hand_written_note_with_wrong_shape_is_ignored(self, data_dir: Path) -> None:
+        m = Memex(MemexConfig(data_dir=data_dir))
+        directory = m.wiki_store.wiki_dir / "projects" / PROJECT / "runbook"
+        directory.mkdir(parents=True)
+        (directory / "log.md").write_text(
+            "Some notes written by another OKF tool about this shelf.\n", encoding="utf-8"
+        )
+        assert "runbook" not in m.wiki_store.declared_types_in(directory.parent)
+        with pytest.raises(WikiStoreError, match="undeclared type"):
+            m.write(
+                WriteInput(type="runbook", title="X", body="b", scope="project", project_id=PROJECT)
+            )
+        failed = _failed(verify(m))
+        assert "runbook" in failed["types-declared"]
+
+    def test_valid_declare_line_followed_by_free_text_still_declares(self, data_dir: Path) -> None:
+        store = _store(data_dir)
+        directory = store.wiki_dir / "projects" / PROJECT / "runbook"
+        directory.mkdir(parents=True)
+        (directory / "log.md").write_text(
+            "2026-01-01T00:00:00Z declare runbook by user: How we run things.\n"
+            "Some notes written by another OKF tool about this shelf.\n",
+            encoding="utf-8",
+        )
+        declared = store.declared_types_in(directory.parent)["runbook"]
+        assert declared.kind == "custom" and declared.description == "How we run things."
+
+
+def test_withdrawn_type_is_a_state_not_erased(data_dir: Path) -> None:
+    m = Memex(MemexConfig(data_dir=data_dir))
+    m.wiki_store.declare_type(
+        "access-matrix", scope="project", project_id=PROJECT, description="Who may edit."
+    )
+    m.write(
+        WriteInput(type="access-matrix", title="Doc", body="b", scope="project", project_id=PROJECT)
+    )
+    result = m.types.remove("access-matrix", project_id=PROJECT, force=True)
+    assert result == {"removed": "access-matrix", "archived": 1}
+
+    project_dir = m.wiki_store.wiki_dir / "projects" / PROJECT
+    assert m.wiki_store.declared_types_in(project_dir)["access-matrix"].kind == "withdrawn"
+
+    with pytest.raises(WikiStoreError, match="withdrawn"):
+        m.write(
+            WriteInput(
+                type="access-matrix", title="Second", body="b", scope="project", project_id=PROJECT
+            )
+        )
+
+    failed = _failed(verify(m))
+    assert "types-match-directory" not in failed
+    assert "types-declared" not in failed
+    assert "draft-types-pending" not in failed
+
+    doc = ImportExport(m.wiki_store, m.index_manager, m.link_manager).export()
+    exported_types = doc["types"]
+    assert isinstance(exported_types, list)
+    assert not any(t["name"] == "access-matrix" for t in exported_types)
+
+    with pytest.raises(WikiStoreError, match="already withdrawn"):
+        m.types.remove("access-matrix", project_id=PROJECT)
+
+    redeclared = m.wiki_store.declare_type("access-matrix", scope="project", project_id=PROJECT)
+    assert redeclared.kind == "custom"
+
+
+def test_hand_placed_global_custom_type_directory_is_invisible(data_dir: Path) -> None:
+    # Regression: is_type_dir's global branch must not fall through to the
+    # general type-name-shape check, or a stray hand-placed directory under
+    # docs/global/ would be scanned, indexed, and given a navigation heading.
+    from memex.domain.frontmatter import serialize_front_matter
+    from memex.infrastructure.store.wiki_store import node_front_matter
+
+    m = Memex(MemexConfig(data_dir=data_dir))
+    stray = m.wiki_store.wiki_dir / "global" / "runbook"
+    stray.mkdir(parents=True)
+    node = WikiNode(
+        type="runbook", title="X", body="Body.", id="11111111-1111-1111-1111-111111111111"
+    )
+    node.content_hash = "sha256:" + "0" * 64
+    (stray / "x.md").write_text(
+        serialize_front_matter(node_front_matter(node), node.body), encoding="utf-8"
+    )
+
+    assert m.wiki_store._is_type_dir(stray) is False
+    assert all(n.slug != "x" for n in m.wiki_store.scan_all())
+
+    report = m.rebuild_index(force=True)
+    assert report.nodes_indexed == 0
+    assert m.index_manager.get("x") is None
+    index_path = m.wiki_store.wiki_dir / "global" / "index.md"
+    if index_path.exists():
+        assert "Runbook" not in index_path.read_text(encoding="utf-8")
+
+
+def test_project_directories_skips_symlinked_child(data_dir: Path) -> None:
+    store = _store(data_dir)
+    _page(store, "entity", "Seed")  # creates a genuine project directory
+    projects_dir = store.wiki_dir / "projects"
+    real = next(iter(store.project_directories()))
+    bogus = projects_dir / "bogus-symlink"
+    bogus.symlink_to(real, target_is_directory=True)
+
+    names = {p.name for p in store.project_directories()}
+    assert "bogus-symlink" not in names
+    assert real.name in names
+
+
+def test_import_type_with_multiline_description_records_error(
+    data_dir: Path, tmp_path: Path
+) -> None:
+    other = Memex(MemexConfig(data_dir=data_dir))
+    archive = tmp_path / "bad-desc.json"
+    archive.write_text(
+        json.dumps(
+            {
+                "version": "1.0",
+                "exported_at": "2026-01-01T00:00:00Z",
+                "types": [
+                    {
+                        "scope": "project",
+                        "project_id": PROJECT,
+                        "name": "story-map",
+                        "kind": "custom",
+                        "description": "line one\nline two",
+                    }
+                ],
+                "nodes": [],
+            }
+        )
+    )
+    io = ImportExport(other.wiki_store, other.index_manager, other.link_manager)
+    result = io.import_file(archive)
+    import_errors = result["errors"]
+    assert isinstance(import_errors, list)
+    assert any("story-map" in e for e in import_errors)
+    assert "story-map" not in other.wiki_store.declared_types(scope="project", project_id=PROJECT)
+
+
 class TestWritesRespectDeclarations:
     def test_write_to_enabled_type_lands_in_its_directory(self, data_dir: Path) -> None:
         store = _store(data_dir)

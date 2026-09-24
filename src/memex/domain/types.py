@@ -12,12 +12,20 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from memex.domain.reserved import RESERVED_SLUGS
 
 NODE_TYPES: tuple[str, ...] = ("entity", "preference", "procedure", "summary", "episode")
 MEMORY_TYPES: tuple[str, ...] = ("episode", "summary")
+
+# Stored description budget: one line, at most 512 UTF-8 bytes (spec AC-0002).
+# Enforced on the stored (post-scrub) value, so redaction growth cannot land
+# an over-budget field on disk with a misleading boundary error. Lives here,
+# not in domain/models.py, so a type declaration's log.md text (this module)
+# can share the same budget without models.py importing back into types.py.
+DESCRIPTION_MAX_BYTES = 512
 
 # Built-in types keep their historical plural directories; every other type
 # is its own directory, so the name on disk is the name in front matter.
@@ -38,6 +46,23 @@ TYPE_NAME = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 KNOWLEDGE_APPROVAL_VALUES: tuple[str, ...] = ("manual", "auto")
 
 Kind = Literal["memory", "knowledge"]
+
+# A project directory's lifecycle state, read from its log.md (WikiStore
+# _log_state): "draft" is a model nomination pending approval, "withdrawn" is
+# a removed type whose directory and history stay on disk as a re-declarable
+# state rather than a lie that it was never declared.
+TypeKind = Literal["builtin", "catalogue", "custom", "draft", "withdrawn"]
+
+
+@dataclass(frozen=True, slots=True)
+class TypeDeclaration:
+    """One type as the filesystem declares it for a scope and project."""
+
+    name: str
+    kind: TypeKind
+    description: str
+    pages: int
+    directory: Path
 
 
 @dataclass(frozen=True, slots=True)

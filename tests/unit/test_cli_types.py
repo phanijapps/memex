@@ -61,6 +61,24 @@ def test_add_rejects_bad_and_colliding_names(
     assert "already" in errors["log"]
 
 
+def test_add_rejects_multiline_description_and_creates_no_directory(
+    capsys: pytest.CaptureFixture[str], data_dir: Path
+) -> None:
+    code, _ = _run(
+        capsys,
+        data_dir,
+        "types",
+        "add",
+        "story-map",
+        "--project-id",
+        PROJECT,
+        "--description",
+        "a\nb",
+    )
+    assert code != 0
+    assert not list((data_dir / "docs").rglob("story-map"))
+
+
 def test_write_to_declared_type_then_remove_refuses_and_force_archives(
     capsys: pytest.CaptureFixture[str], data_dir: Path
 ) -> None:
