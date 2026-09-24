@@ -205,7 +205,8 @@ class TestDeclaration:
         )
 
     def test_stray_directory_without_log_is_refused(self, data_dir: Path) -> None:
-        # Review Focus 1.
+        # Proves: a pre-existing directory with no log.md is never mistaken
+        # for a declaration, and declare_type refuses to adopt it silently.
         store = _store(data_dir)
         _page(store, "entity", "Seed")  # creates the project directory
         project_dir = store.get_path("seed").parent.parent
@@ -227,7 +228,8 @@ class TestDeclaration:
         assert store._is_type_dir(store.wiki_dir / "entities") is True
 
     def test_global_scope_refuses_non_builtin(self, data_dir: Path) -> None:
-        # Review Focus 5.
+        # Proves: catalogue and custom types exist at project scope only;
+        # global scope keeps exactly the five built-ins.
         with pytest.raises(WikiStoreError, match="global scope"):
             _store(data_dir).declare_type("rule", scope="global", project_id=None)
 

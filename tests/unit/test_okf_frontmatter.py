@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -32,8 +33,18 @@ def memex(data_dir: Path) -> Memex:
     return Memex(MemexConfig(data_dir=data_dir))
 
 
-# Resolved at import time: the conftest fixture redirects HOME per test.
-_REFERENCE_LINTER = Path.home() / "code/okf-wiki/bootstrap/skills/okf-lint/scripts/lint-bundle.py"
+@pytest.fixture(scope="session")
+def reference_linter() -> Path:
+    """The real OKF reference linter, resolved once per session.
+
+    Session scope, not a module-level constant: pytest sets up a
+    session-scoped fixture before any test's function-scoped fixtures, so
+    this resolves against the developer's real ``HOME`` before the
+    per-test ``_isolated_memex_env`` autouse fixture redirects it — and an
+    import-time stat never risks failing collection for the whole file in
+    an environment where ``HOME`` is unset.
+    """
+    return Path.home() / "code/okf-wiki/bootstrap/skills/okf-lint/scripts/lint-bundle.py"
 
 
 def _front_matter(path: Path) -> dict[str, object]:
@@ -79,11 +90,33 @@ class TestPageShape:
             store.read("page")
 
     def test_timestamp_moves_every_write_and_created_never_does(self, memex: Memex) -> None:
-        """OKF `timestamp` is the write instant; `created` is Memex's own."""
-        first = _front_matter(_write(memex))
-        again = _front_matter(_write(memex, title="Page", body="Body text."))
-        assert again["created"] == first["created"]
-        assert again["timestamp"] >= first["timestamp"]  # type: ignore[operator]
+        """`timestamp` moves on every write; `updated_at` moves only when the
+        body's content hash changes; `created` never changes across writes
+        to the same page (WikiStore.write). Both writes below target the
+        same slug, so this proves the claim about one page, not luck across
+        two different ones."""
+        path = _write(memex)
+        slug = path.stem
+        first = _front_matter(path)
+
+        same_body = memex.wiki_store.read(slug)
+        assert same_body is not None
+        rewritten = memex.wiki_store.write(same_body)
+        assert rewritten.file_path is not None
+        unchanged = _front_matter(Path(rewritten.file_path))
+        assert unchanged["created"] == first["created"]
+        assert unchanged["timestamp"] >= first["timestamp"]  # type: ignore[operator]
+        assert unchanged["updated_at"] == first["updated_at"]
+
+        edited = memex.wiki_store.read(slug)
+        assert edited is not None
+        edited.body = "Body text, edited."
+        time.sleep(1)  # cross a whole-second boundary so updated_at strictly moves
+        stored = memex.wiki_store.write(edited)
+        assert stored.file_path is not None
+        after_edit = _front_matter(Path(stored.file_path))
+        assert after_edit["created"] == first["created"]
+        assert after_edit["updated_at"] > unchanged["updated_at"]  # type: ignore[operator]
 
 
 class TestTypedLinks:
@@ -421,11 +454,13 @@ class TestReviewedCriteria:
 
         assert SCHEMA_VERSION == "6"
 
-    def test_store_passes_the_okf_reference_linter(self, memex: Memex, tmp_path: Path) -> None:
+    def test_store_passes_the_okf_reference_linter(
+        self, memex: Memex, tmp_path: Path, reference_linter: Path
+    ) -> None:
         """AC-0028: the real OKF linter, when the reference checkout is present."""
         import subprocess
 
-        linter = _REFERENCE_LINTER
+        linter = reference_linter
         if not linter.exists():
             pytest.skip("OKF reference linter not available on this machine")
         memex.write(WriteInput(type="entity", title="Target", body="b", description="When X."))
@@ -440,6 +475,7 @@ class TestReviewedCriteria:
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
         assert result.returncode == 0, result.stdout
         assert "0 error(s), 0 warning(s)" in result.stdout
