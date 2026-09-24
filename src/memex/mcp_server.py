@@ -104,7 +104,9 @@ def memex_write(
     slug updates it, preserving id, created, and access counters.
 
     Args:
-        type: Any shape-valid type; membership validated by the store.
+        type: Episode is not creatable here — episodes require transcript
+            ingestion through a harness hook or the CLI. Any built-in, enabled
+            catalogue, or declared type for the target project; see memex types list.
         title: Human-readable; the slug derives from it.
         description: Optional one-sentence signpost (single line, at most
             512 UTF-8 bytes) stating WHEN the page is useful — the situation
