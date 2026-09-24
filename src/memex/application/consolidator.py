@@ -309,13 +309,19 @@ class WikiConsolidator:
     ) -> None:
         node_type = candidate.type
         status = initial_status(candidate.type, "consolidation", self._knowledge_approval)
-        if scope == "project" and candidate.proposed_type:
-            self._declare_draft_if_needed(
+        # A model never resurrects a withdrawn type: when proposed_type names
+        # one, _declare_draft_if_needed declares nothing and returns False,
+        # and the candidate lands under its own stated type instead.
+        if (
+            scope == "project"
+            and candidate.proposed_type
+            and self._declare_draft_if_needed(
                 candidate.proposed_type,
                 project_id,
                 session_ids,
                 proposed_counts[candidate.proposed_type],
             )
+        ):
             node_type = candidate.proposed_type
             status = "pending"  # drafts are pending by construction, regardless of policy
         node = WikiNode(
@@ -350,16 +356,28 @@ class WikiConsolidator:
         project_id: str | None,
         session_ids: list[str],
         pages: int,
-    ) -> None:
+    ) -> bool:
         """Found ``name`` as a project draft type the first time this run
         nominates it; a second candidate proposing the same name in the same
         run reuses the declaration already made. ``pages`` is nomination
         evidence recorded before the pages exist: the number of candidate
         pages nominated for ``name`` in this run, not a live count of pages
-        on disk."""
+        on disk.
+
+        Returns ``True`` when the draft exists (already declared or just
+        declared here) and the candidate may land under it. Returns
+        ``False``, declaring nothing, when ``name`` is already declared but
+        ``withdrawn``: a model never resurrects a withdrawn type on its own
+        say-so — only a person re-declaring it through ``memex types
+        add``/``enable`` brings it back.
+        """
         declared = self._store.declared_types(scope="project", project_id=project_id)
-        if name in declared:
-            return
+        existing = declared.get(name)
+        if existing is not None:
+            if existing.kind == "withdrawn":
+                logger.info("operation=consolidate proposed_type=withdrawn")
+                return False
+            return True
         self._store.declare_type(
             name,
             scope="project",
@@ -368,3 +386,4 @@ class WikiConsolidator:
             draft=True,
             description=f"sessions={','.join(session_ids)} pages={pages}",
         )
+        return True

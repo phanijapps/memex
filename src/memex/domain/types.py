@@ -99,6 +99,11 @@ CATALOGUE: dict[str, TypeContract] = {
 }
 
 
+def _echo(name: str) -> str:
+    """Bound an untrusted, possibly-arbitrary-length name for an error message."""
+    return name if len(name) <= 64 else name[:64] + "…"
+
+
 def validate_type_name(name: str, *, custom: bool = False) -> str:
     """Return ``name`` when it may be a type; raise ValueError naming the rule.
 
@@ -107,7 +112,7 @@ def validate_type_name(name: str, *, custom: bool = False) -> str:
     can never shadow one and two index sections can never share a heading.
     """
     if not TYPE_NAME.fullmatch(name):
-        raise ValueError(f"type name must match [a-z][a-z0-9-]{{0,63}}, got {name!r}")
+        raise ValueError(f"type name {_echo(name)!r} must match [a-z][a-z0-9-]{{0,63}}")
     if custom:
         taken = (
             set(NODE_TYPES)

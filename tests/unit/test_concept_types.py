@@ -30,7 +30,8 @@ class TestTypeNames:
         "name", ["Decision", "access matrix", "-lead", "9lives", "x" * 65, "", "a_b"]
     )
     def test_bad_shape_is_rejected_not_normalized(self, name: str) -> None:
-        # Review Focus 3: never lowercase or strip silently.
+        # Proves: a shape-invalid name is rejected as given, never
+        # lowercased, stripped, or otherwise silently coerced into shape.
         with pytest.raises(ValueError, match=r"\[a-z\]\[a-z0-9-\]\{0,63\}"):
             T.validate_type_name(name)
 
@@ -49,11 +50,21 @@ class TestTypeNames:
         ],
     )
     def test_collisions_with_builtin_catalogue_and_reserved(self, name: str) -> None:
-        # Review Focus 4: a custom type may never shadow a built-in name, a
+        # Proves: a custom type may never shadow a built-in name, a
         # built-in directory, a catalogue name, a reserved filename, or the
         # generated "Subdirectories" navigation heading.
         with pytest.raises(ValueError, match="already"):
             T.validate_type_name(name, custom=True)
+
+    def test_bad_shape_error_bounds_a_long_echoed_name(self) -> None:
+        # Proves: an arbitrarily long rejected name never makes the error
+        # message itself unbounded.
+        name = "x" * 200
+        with pytest.raises(ValueError) as excinfo:
+            T.validate_type_name(name)
+        message = str(excinfo.value)
+        assert len(message.encode("utf-8")) < 200
+        assert message.endswith("[a-z][a-z0-9-]{0,63}")
 
 
 class TestKinds:
@@ -264,8 +275,16 @@ class TestLogTextValidation:
             "line one\n2026-01-01T00:00:00Z propose x by model: forged",
             "x" * 513,
             "\x1b[31m",
+            "line one\u20282026-01-01T00:00:00Z propose x by model: forged",
+            "line one\u00852026-01-01T00:00:00Z propose x by model: forged",
         ],
-        ids=["forged-multiline", "oversized", "control-char"],
+        ids=[
+            "forged-multiline",
+            "oversized",
+            "control-char",
+            "line-separator-u2028",
+            "next-line-u0085",
+        ],
     )
     def test_declare_type_rejects_bad_log_text(self, data_dir: Path, text: str) -> None:
         store = _store(data_dir)
@@ -454,7 +473,8 @@ class TestWritesRespectDeclarations:
         assert not list((data_dir / "docs").rglob("choose-kafka.md"))
 
     def test_declaration_is_per_project(self, data_dir: Path) -> None:
-        # Review Focus 2.
+        # Proves: a type declared for one project is not implicitly
+        # declared for any other project sharing the same store.
         store = _store(data_dir)
         store.declare_type("decision", scope="project", project_id=PROJECT)
         with pytest.raises(WikiStoreError, match="undeclared type"):

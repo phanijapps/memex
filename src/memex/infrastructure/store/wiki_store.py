@@ -47,12 +47,20 @@ _LOG_VERBS = frozenset({"declare", "propose", "remove"})
 def _validate_log_text(text: str) -> None:
     """One line, no control characters, at most ``DESCRIPTION_MAX_BYTES``.
 
-    Never echoes ``text`` in the raised error: it may carry untrusted input.
+    ``text.splitlines() != [text]`` mirrors ``_log_state``'s own reader
+    exactly: ``str.splitlines()`` breaks on more than ``\\n``/``\\r`` (also
+    U+0085, U+2028, U+2029, ...), so a description carrying one of those
+    would still start a new "line" as ``_log_state`` reads it, even though
+    the control-character check (which only covers ord < 32 and DEL)
+    misses it. Never echoes ``text`` in the raised error: it may carry
+    untrusted input.
     """
     if not text:
         return
-    if any(ord(c) < 32 or c == "\x7f" for c in text) or (
-        len(text.encode("utf-8")) > DESCRIPTION_MAX_BYTES
+    if (
+        text.splitlines() != [text]
+        or any(ord(c) < 32 or c == "\x7f" for c in text)
+        or len(text.encode("utf-8")) > DESCRIPTION_MAX_BYTES
     ):
         raise WikiStoreError("declaration text must be one line of at most 512 bytes")
 
@@ -572,8 +580,11 @@ class WikiStore:
                 "run memex types add or memex types enable"
             )
         if declared.kind == "withdrawn":
+            # Shares the "undeclared type " prefix with the branch above so
+            # mcp_server._sanitize's one prefix check passes both messages
+            # through without a second, withdrawn-specific branch.
             raise WikiStoreError(
-                f"type {node_type!r} is withdrawn; "
+                f"undeclared type {node_type!r}: withdrawn; "
                 "run memex types add or memex types enable to re-declare it"
             )
 
