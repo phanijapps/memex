@@ -478,3 +478,25 @@ def test_verify_reports_undeclared_directory_and_non_pending_draft(data_dir: Pat
     assert "map" in failed["draft-types-pending"]
     for detail in failed.values():
         assert str(data_dir) not in detail
+
+
+def test_verify_passes_for_declared_types_with_no_pages_yet(data_dir: Path) -> None:
+    m = Memex(MemexConfig(data_dir=data_dir))
+    m.wiki_store.declare_type("decision", scope="project", project_id=PROJECT)
+    m.wiki_store.declare_type("access-matrix", scope="project", project_id=PROJECT)
+    report = verify(m)
+    failed = _failed(report)
+    assert "types-declared" not in failed
+    assert "types-match-directory" not in failed
+    assert "draft-types-pending" not in failed
+    assert all(check["ok"] for check in report.checks)
+
+
+def test_declared_types_in_matches_declared_types(data_dir: Path) -> None:
+    store = _store(data_dir)
+    store.declare_type("decision", scope="project", project_id=PROJECT)
+    _page(store, "decision", "Choose Kafka")
+    project_dir = store.wiki_dir / "projects" / PROJECT  # PROJECT is 'a'*24, so this is the path
+    declared_in = store.declared_types_in(project_dir)
+    declared = store.declared_types(scope="project", project_id=PROJECT)
+    assert declared_in == declared

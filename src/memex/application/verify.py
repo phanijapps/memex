@@ -124,6 +124,27 @@ def _slug_detail(label: str, slugs: list[str]) -> str:
     return f"{len(slugs)} {label}: {shown}"
 
 
+def _undeclared_and_non_pending(
+    memex: Memex, project_dir: Path, nodes_by_dir: dict[Path, list[WikiNode]]
+) -> tuple[list[str], list[str]]:
+    """Check declared types in a project and return undeclared dirs and non-pending pages.
+
+    Returns (undeclared, non_pending) lists of directory paths and page slugs.
+    """
+    undeclared: list[str] = []
+    non_pending: list[str] = []
+    declared = memex.wiki_store.declared_types_in(project_dir)
+    by_dir = {type_directory(name): decl for name, decl in declared.items()}
+    for child in sorted(p for p in project_dir.iterdir() if p.is_dir() and not p.is_symlink()):
+        decl = by_dir.get(child.name)
+        if decl is None:
+            undeclared.append(f"{project_dir.name}/{child.name}")
+            continue
+        if decl.kind == "draft":
+            non_pending.extend(n.slug for n in nodes_by_dir.get(child, []) if n.status != "pending")
+    return undeclared, non_pending
+
+
 def type_checks(memex: Memex, nodes: list[WikiNode]) -> list[dict[str, object]]:
     """Project concept types: page type matches its directory, every
     directory is declared, and a draft type holds only pending pages."""
@@ -132,6 +153,15 @@ def type_checks(memex: Memex, nodes: list[WikiNode]) -> list[dict[str, object]]:
         for n in nodes
         if n.file_path and Path(n.file_path).parent.name != type_directory(n.type)
     ]
+    # Build nodes indexed by directory for efficient draft-type checks
+    nodes_by_dir: dict[Path, list[WikiNode]] = {}
+    for n in nodes:
+        if n.file_path:
+            parent = Path(n.file_path).parent
+            if parent not in nodes_by_dir:
+                nodes_by_dir[parent] = []
+            nodes_by_dir[parent].append(n)
+
     undeclared: list[str] = []
     non_pending: list[str] = []
     projects_dir = memex.wiki_store.wiki_dir / "projects"
@@ -139,27 +169,12 @@ def type_checks(memex: Memex, nodes: list[WikiNode]) -> list[dict[str, object]]:
         for project_dir in sorted(
             p for p in projects_dir.iterdir() if p.is_dir() and not p.is_symlink()
         ):
-            project_id = memex.wiki_store.project_id_of(project_dir)
-            if project_id:
-                declared = memex.wiki_store.declared_types(scope="project", project_id=project_id)
-            else:
-                declared = {}
-            by_dir = {type_directory(name): decl for name, decl in declared.items()}
-            for child in sorted(
-                p for p in project_dir.iterdir() if p.is_dir() and not p.is_symlink()
-            ):
-                decl = by_dir.get(child.name)
-                if decl is None:
-                    undeclared.append(f"{project_dir.name}/{child.name}")
-                    continue
-                if decl.kind == "draft":
-                    for n in nodes:
-                        if (
-                            n.file_path
-                            and Path(n.file_path).parent == child
-                            and n.status != "pending"
-                        ):
-                            non_pending.append(n.slug)
+            proj_undeclared, proj_non_pending = _undeclared_and_non_pending(
+                memex, project_dir, nodes_by_dir
+            )
+            undeclared.extend(proj_undeclared)
+            non_pending.extend(proj_non_pending)
+
     mismatch_label = "pages whose type differs from their directory"
     declare_label = "project directories without a declaration"
     pending_label = "non-pending pages inside draft types"

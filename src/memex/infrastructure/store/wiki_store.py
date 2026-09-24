@@ -383,11 +383,11 @@ class WikiStore:
                 description = line.split(": ", 1)[1]
         return verb, description
 
-    def declared_types(
-        self, *, scope: str, project_id: str | None, project_locator: str | None = None
-    ) -> dict[str, TypeDeclaration]:
-        """Built-in types plus every type the scope root's directories declare."""
-        root = self._scope_root(scope, project_id, project_locator)
+    def declared_types_in(self, root: Path) -> dict[str, TypeDeclaration]:
+        """Built-in types plus every type the directories under ``root`` declare.
+
+        ``root`` is a scope root (``docs/global`` or a project directory).
+        """
         found: dict[str, TypeDeclaration] = {}
         for name in TYPE_DIRS:
             directory = root / TYPE_DIRS[name]
@@ -397,7 +397,7 @@ class WikiStore:
                 else 0
             )
             found[name] = TypeDeclaration(name, "builtin", "", pages, directory)
-        if scope == "global" or not root.exists():
+        if not root.exists():
             return found
         for directory in sorted(root.iterdir()):
             if directory.name in TYPE_DIRS.values() or not self._is_type_dir(directory):
@@ -412,6 +412,25 @@ class WikiStore:
             pages = len([p for p in directory.glob("*.md") if not is_structural(p)])
             found[name] = TypeDeclaration(name, kind, description, pages, directory)
         return found
+
+    def declared_types(
+        self, *, scope: str, project_id: str | None, project_locator: str | None = None
+    ) -> dict[str, TypeDeclaration]:
+        """Built-in types plus every type the scope root's directories declare."""
+        root = self._scope_root(scope, project_id, project_locator)
+        if scope == "global":
+            # Global scope: only built-in types
+            found: dict[str, TypeDeclaration] = {}
+            for name in TYPE_DIRS:
+                directory = root / TYPE_DIRS[name]
+                pages = (
+                    len([p for p in directory.glob("*.md") if not is_structural(p)])
+                    if directory.is_dir()
+                    else 0
+                )
+                found[name] = TypeDeclaration(name, "builtin", "", pages, directory)
+            return found
+        return self.declared_types_in(root)
 
     def declare_type(
         self,
@@ -467,10 +486,6 @@ class WikiStore:
                 f"undeclared type {node_type!r} for this project; "
                 "run memex types add or memex types enable"
             )
-
-    def project_id_of(self, directory: Path) -> str | None:
-        """The project_id a project directory belongs to, read from one of its pages."""
-        return self._project_id_in_dir(directory)
 
     def delete(self, slug: str) -> Path:
         """Delete a page. Raises WikiStoreError when it does not exist."""
