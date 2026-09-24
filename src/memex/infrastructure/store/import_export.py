@@ -38,6 +38,9 @@ class ImportExport:
         self._on_page_written = on_page_written
 
     def export(self, output_path: Path | None = None) -> dict[str, object]:
+        declarations, skipped = self._store.project_declarations()
+        if skipped:
+            logger.warning("operation=export types_skipped=%d", skipped)
         document: dict[str, object] = {
             "version": EXPORT_VERSION,
             "exported_at": utc_now_iso(),
@@ -49,7 +52,7 @@ class ImportExport:
                     "kind": declaration.kind,
                     "description": declaration.description,
                 }
-                for project_id, declaration in self._store.project_declarations()[0]
+                for project_id, declaration in declarations
             ],
             "nodes": [self._node_to_json(node) for node in self._store.list()],
         }
@@ -75,6 +78,7 @@ class ImportExport:
         type_entries = data.get("types")
         for entry in type_entries if isinstance(type_entries, list) else []:
             if not isinstance(entry, dict):
+                errors.append("non-object type entry skipped")
                 continue
             name = str(entry.get("name", ""))
             project_id = str(entry.get("project_id", ""))

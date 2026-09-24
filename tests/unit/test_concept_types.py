@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -568,3 +569,69 @@ def test_import_fails_on_page_of_undeclared_type(data_dir: Path, tmp_path: Path)
     assert result["imported"] == 0
     assert isinstance(import_errors, list)
     assert any("x" in e and "undeclared" in e for e in import_errors)
+
+
+def test_export_skips_project_whose_pages_disagree_on_id(data_dir: Path, tmp_path: Path) -> None:
+    m = Memex(MemexConfig(data_dir=data_dir))
+    m.wiki_store.declare_type("decision", scope="project", project_id=PROJECT)
+    m.write(
+        WriteInput(type="decision", title="Choose", body="b", scope="project", project_id=PROJECT)
+    )
+    second = m.write(
+        WriteInput(
+            type="decision", title="Choose Two", body="b", scope="project", project_id=PROJECT
+        )
+    )
+    other_id = "c" * 24
+    second_path = Path(second.file_path or "")
+    second_path.write_text(
+        second_path.read_text(encoding="utf-8").replace(
+            f'project_id: "{PROJECT}"', f'project_id: "{other_id}"'
+        ),
+        encoding="utf-8",
+    )
+
+    archive = tmp_path / "e.json"
+    doc = ImportExport(m.wiki_store, m.index_manager, m.link_manager).export(archive)
+    exported_types = doc["types"]
+    assert isinstance(exported_types, list)
+    assert not any(t.get("project_id") == PROJECT for t in exported_types)
+    _, skipped = m.wiki_store.project_declarations()
+    assert skipped == 1
+
+
+def test_export_warns_when_a_declared_project_is_skipped(
+    data_dir: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    m = Memex(MemexConfig(data_dir=data_dir))
+    m.logger.propagate = True  # caplog visibility; production keeps False
+    m.wiki_store.declare_type("decision", scope="project", project_id=PROJECT)
+    archive = tmp_path / "e.json"
+
+    with caplog.at_level(logging.WARNING, logger="memex"):
+        ImportExport(m.wiki_store, m.index_manager, m.link_manager).export(archive)
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert "operation=export types_skipped=1" in warnings
+
+
+def test_import_records_non_object_type_entry(data_dir: Path, tmp_path: Path) -> None:
+    other = Memex(MemexConfig(data_dir=data_dir))
+    archive = tmp_path / "bad-types.json"
+    archive.write_text(
+        json.dumps(
+            {
+                "version": "1.0",
+                "exported_at": "2026-01-01T00:00:00Z",
+                "types": [42],
+                "nodes": [],
+            }
+        )
+    )
+    result = ImportExport(other.wiki_store, other.index_manager, other.link_manager).import_file(
+        archive
+    )
+    import_errors = result["errors"]
+    assert isinstance(import_errors, list)
+    assert "non-object type entry skipped" in import_errors
+    assert result["imported"] == 0

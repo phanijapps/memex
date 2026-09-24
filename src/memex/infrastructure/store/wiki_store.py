@@ -445,9 +445,10 @@ class WikiStore:
         via ``_project_id_in_dir`` rather than assumed from the directory
         name: a caller may pass a ``project_locator`` that diverges from the
         ``project_id`` (see ``_project_dir``), so directory name equality is
-        not guaranteed by the layout. A directory that declares types but
-        holds no pages yet has no reliable ``project_id`` to export under and
-        is skipped; ``skipped`` counts how many such directories were found.
+        not guaranteed by the layout. A directory whose ``project_id`` cannot
+        be determined (no pages yet) or is inconsistent (its pages disagree
+        on ``project_id``) is skipped; ``skipped`` counts how many such
+        directories were found.
         """
         results: ProjectDeclarations = []
         skipped = 0
@@ -457,7 +458,10 @@ class WikiStore:
         for directory in sorted(projects_dir.iterdir()):
             if not directory.is_dir() or directory.is_symlink():
                 continue
-            project_id = self._project_id_in_dir(directory)
+            try:
+                project_id = self._project_id_in_dir(directory)
+            except WikiStoreError:
+                project_id = None
             declarations = [
                 d for d in self.declared_types_in(directory).values() if d.kind != "builtin"
             ]
