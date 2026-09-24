@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from memex.application.decay import RecencyDecay
 from memex.domain import types as T
 from memex.domain.errors import WikiStoreError
 from memex.domain.models import TaskRecallInput, WikiNode, WriteInput
@@ -270,3 +271,15 @@ class TestWritesRespectDeclarations:
         node = store.write(WikiNode(type="entity", title="Global thing", body="b", id=""))
         assert Path(node.file_path or "").parts[-3:-1] == ("global", "entities")
         assert store.declared_types(scope="global", project_id=None).keys() == set(TYPE_DIRS)
+
+
+def test_catalogue_pages_never_decay_builtins_do(data_dir: Path) -> None:
+    store = _store(data_dir)
+    store.declare_type("policy", scope="project", project_id=PROJECT)
+    old = "2020-01-01T00:00:00Z"
+    _page(store, "policy", "Prefer boring tech", importance=1.0, created=old, last_access=old)
+    _page(store, "entity", "Kafka", importance=1.0, created=old, last_access=old)
+    changes = RecencyDecay(half_life_days=30).apply_decay(store)
+    assert [slug for slug, _old, _new in changes] == ["kafka"]
+    policy = store.read("prefer-boring-tech")
+    assert policy is not None and policy.importance == 1.0
