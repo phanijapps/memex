@@ -1585,3 +1585,38 @@ Big bang within one branch, no flag. Two user-visible defaults change and are na
 ## Changelog
 
 - 2026-09-24: Plan drafted from the approved spec.
+- 2026-09-24: Executed via subagent-driven development, ten tasks, commits
+  `f3e08cf..11391f1` (Tasks 1-9) plus one documentation commit closing
+  Task 10 (`docs(types): ADR-0006, guide, architecture, changelog for
+  project concept types`). Spec status moved `Draft` straight to `Shipped`;
+  the plan's intermediate `Implementing` step was skipped because Step 4's
+  gates only went green at the end of Task 10, after every task's own
+  gates had already passed. Rulings that changed the plan, in task order:
+  - Task 3: `_is_type_dir`'s flat-layout branch (the pre-Task-3
+    `docs/global`/`docs/projects` layout some fixtures still write) was
+    first widened, then narrowed to built-in directory names only, so a
+    stray file directly under `docs/global` or a project root can never
+    count as a type directory.
+  - Task 4: `SUBDIRECTORIES_HEADING` was reserved in `domain/types.py` and
+    a custom type may never take it, so a type named `subdirectories`
+    cannot collide with the generated `## Subdirectories` section.
+  - Task 4: `WikiStore._is_type_dir` was lifted into a shared, module-level
+    `is_type_dir(wiki_dir, directory)` predicate that both the store and
+    navigation call, replacing navigation's own position-unaware check.
+  - Task 8: `WikiStore.project_id_of` was replaced by
+    `declared_types_in(root)`, a directory-rooted declaration lookup that
+    cannot raise on a mixed-id or pageless project directory the way
+    resolving a project id first could.
+  - Task 9: export walks project directories through
+    `project_declarations()`, skipping and counting (`types_skipped=N`) a
+    directory whose project id cannot be read, rather than aborting the
+    whole export.
+  - Task 6: a draft nomination's logged `pages=<n>` counts every candidate
+    page consolidation put forward (including duplicate titles, which get
+    their own slugs), not a de-duplicated title count, so the audit line
+    never understates what the run wrote.
+  - Task 6: `knowledge_approval` defaults to `manual`, flipping
+    consolidation's default output for knowledge types (everything but
+    `episode`/`summary`) from active to pending; consolidator tests that
+    assumed the old `approval="auto"` default were updated to the rule
+    instead of passing `auto` explicitly.

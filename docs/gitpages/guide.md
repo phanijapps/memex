@@ -67,15 +67,62 @@ A `[[slug]]` reference in the body is a graph edge with the relation
 └── logs/                # operation audit trail (no memory contents)
 ```
 
-**Node types.**
+**Concept types.** Every page has a `type`, and a type is one of three kinds
+(ADR-0006). The directory is the declaration: a type exists for a project
+exactly when `projects/<project>/<type>/` exists on disk, and its `log.md`
+records who declared it, when, and why.
 
-| Type | Holds | Example |
-|---|---|---|
-| `entity` | People, tools, concepts | "Ruff linter" |
-| `preference` | Durable user preferences | "Prefer dark mode" |
-| `procedure` | Rules, how-tos, constraints | "Never force-push main" |
-| `summary` | Synthesized overviews | "Tooling decisions, Sept 2026" |
-| `episode` | One captured session | "Session sess-abc123" |
+| Kind | Who defines it | What it carries | Examples |
+|---|---|---|---|
+| Built-in | memex | behaviour — capture writes `episode`, consolidation writes `summary` | `entity`, `preference`, `procedure`, `summary`, `episode` |
+| Catalogue | memex; a project turns it on | a contract — authorship, aging, supersession | `domain`, `architecture`, `rule`, `policy`, `decision` |
+| Custom | a project declares it, or the model nominates it as a draft | a shelf and a heading | `access-matrix`, `story-map` |
+
+The five built-ins keep their historical plural directories
+(`entities/`, `preferences/`, `procedures/`, `summaries/`, `episodes/`) and
+their behaviour unchanged; catalogue and custom types are project-scoped and
+use their own name as the directory name (`decision/`, `access-matrix/`).
+**Memory decays, knowledge does not** — catalogue and custom pages are
+exempt from recency decay, since a policy nobody recalled for six months is
+not less true. **Memory is automatic, knowledge is governed** — `episode`
+and `summary` are always `active` on write; every other type is `active`
+when a person writes it and `pending` when a model does, unless
+`knowledge_approval = "auto"` (see
+[Page status and approval](#page-status-and-approval)).
+
+Manage a project's types with `memex types`:
+
+```bash
+$ memex types enable decision --project-id <id>
+{"name": "decision", "kind": "catalogue", "description": "what was chosen, when, and why", "pages": 0, "directory": ".../projects/<id>/decision"}
+
+$ memex types add access-matrix --project-id <id> --description "Who can edit what"
+{"name": "access-matrix", "kind": "custom", "description": "Who can edit what", "pages": 0, "directory": ".../projects/<id>/access-matrix"}
+
+$ memex write --type decision --title "Choose Kafka" --body "We chose Kafka over RabbitMQ for ordering guarantees." --scope project --project-id <id>
+{"slug": "choose-kafka", "file_path": ".../projects/<id>/decision/choose-kafka.md"}
+
+$ memex types list --project-id <id>
+[{"name": "entity", "kind": "builtin", "pages": 0, ...}, ..., {"name": "decision", "kind": "catalogue", "pages": 1, ...}]
+```
+
+Writing an undeclared type is rejected before anything is written, on every
+surface (CLI, MCP, Python, import), naming the remedy:
+
+```
+memex: undeclared type 'policy' for this project; run memex types add or memex types enable
+```
+
+A type the model discovers rather than a person declaring is a **draft**:
+consolidation may nominate one through `proposed_type`, or
+`memex types suggest --project-id <id>` lists tags that recur on at least
+`--min-pages` (default 3) pages and are not already types, with counts and
+no LLM call. A draft's directory exists and its `log.md` records the
+nomination, but every page in it is `pending`, so it is invisible to recall,
+injection, task recall, and navigation search until a person accepts it.
+Approving, renaming, or merging a draft is a governance verb
+(`memory-governance`). `memex types remove <name>` refuses while pages
+exist and names the count; `--force` archives them first.
 
 **Links.** Reference other pages in any body with `[[slug]]` links
 (`[[Ruff Linter]]` normalizes to `[[ruff-linter]]`). Links are indexed both
@@ -249,11 +296,16 @@ injection see `active` pages only (pass `--include-inactive` /
 `include_inactive` to see the rest). `memex forget <slug> --mode archive`
 retires in place instead of deleting. `memex merge <target> <source>`
 appends the source body into the target and marks the source superseded
-with a backlink. With `[governance] approval = "manual"` in `memex.toml`,
-consolidation-created pages land `pending`; `memex approve <slug>` makes
-them recallable. `memex status` reports index freshness, last capture per
-harness, pending/archived counts, and consecutive zero-yield
-consolidations (memex verify warns on a streak of three).
+with a backlink. `[governance] knowledge_approval = "manual" | "auto"` in
+`memex.toml` (default `manual`) governs model-written *knowledge*: `episode`
+and `summary` are always `active` on write, and every other type — `entity`,
+`preference`, `procedure`, a catalogue type, or a custom type — lands
+`pending` when consolidation writes it and `active` when a person writes it
+through `memex write`, unless `knowledge_approval = "auto"`. `memex approve
+<slug>` makes a pending page recallable. `memex status` reports index
+freshness, last capture per harness, pending/archived counts, and
+consecutive zero-yield consolidations (memex verify warns on a streak of
+three).
 
 ### Secret scrubbing
 

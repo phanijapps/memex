@@ -9,6 +9,22 @@ unreleased until a release tag is created.
 
 ### Added
 
+- `memex types list|add|enable|remove|suggest` (ADR-0006): a project
+  declares its own concept types alongside the built-in five. Catalogue
+  types (`domain`, `architecture`, `rule`, `policy`, `decision`) are
+  memex-defined with a contract and turned on with `memex types enable`;
+  custom types are project-named shelves declared with `memex types add
+  --description`. The directory is the declaration — a type exists for a
+  project exactly when `projects/<project>/<type>/` exists — and its
+  `log.md` records `declare`/`propose`/`remove` lifecycle lines. A model may
+  nominate an undeclared type as a `pending`-only draft (`proposed_type` in
+  consolidation output, or deterministic, LLM-free `memex types suggest`
+  over recurring page tags); every recall path excludes it until a person
+  accepts it. `memex verify` gains three checks: `types-match-directory`,
+  `types-declared`, `draft-types-pending`. Export carries each project's
+  enabled and declared types with descriptions; import declares them before
+  writing pages and warns `types_skipped=N` when a project directory's id
+  cannot be read.
 - Link-graph expansion (OKF `read_concept`) in recall packing: `memex hook
   session-start` and task recall now append pages linked within one hop of
   the direct hits, in deterministic breadth-first order (alphabetical within
@@ -43,6 +59,20 @@ unreleased until a release tag is created.
 
 ### Changed
 
+- **`type` is no longer a closed five-value enum.** CLI `--type`, MCP
+  `type`/`node_type`, and Python accept any built-in, project-enabled
+  catalogue, or project-declared custom type; an undeclared type is
+  rejected before any file is written, on every surface, naming the
+  `memex types` remedy. `[governance] knowledge_approval = "manual" |
+  "auto"` (default `manual`) replaces `approval`: `episode` and `summary`
+  stay `active` on write always, and every other type — built-in or
+  not — lands `pending` when consolidation writes it and `active` when a
+  person writes it, unless `knowledge_approval = "auto"`. A `memex.toml`
+  carrying the retired `approval` key fails loading, naming the
+  replacement. Catalogue and custom pages are exempt from
+  `RecencyDecay` — knowledge is refined or superseded, never aged out.
+  Consolidation writes knowledge into the project the source episode came
+  from, and may write `decision` only where a project has enabled it.
 - Harness install assets moved from the repository root to
   `src/memex/marketplace/`, inside the package that reads them at runtime.
   Wheels are unchanged — the files still land at `memex/marketplace` — and

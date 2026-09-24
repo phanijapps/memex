@@ -1,6 +1,6 @@
 # Spec: Project-level concept types
 
-- **Status:** Draft
+- **Status:** Shipped
 - **Owner:** phanijapps
 - **Plan:** [`plan.md`](plan.md) (authored on approval)
 - **Constrained by:** ADR-0001, ADR-0004, ADR-0005
@@ -127,53 +127,53 @@ Approval, rename, and merge of a draft are governance verbs and live in
 
 ## Acceptance Criteria
 
-- [ ] **AC-0001.** `memex types enable <catalogue> --scope project` and
+- [x] **AC-0001.** `memex types enable <catalogue> --scope project` and
       `memex types add <custom> --scope project [--description <text>]` create
       `projects/<project>/<name>/` with a generated `index.md`, and
       `memex types list --scope project` prints built-in, enabled catalogue,
       declared custom, and draft types with page counts and kind.
-- [ ] **AC-0002.** A name outside `[a-z][a-z0-9-]{0,63}`, or colliding with a
+- [x] **AC-0002.** A name outside `[a-z][a-z0-9-]{0,63}`, or colliding with a
       built-in name or directory, a catalogue name, `index`, or `log`, is
       rejected with an error naming the rule.
-- [ ] **AC-0003.** `memex write --type <name>` and the MCP and Python
+- [x] **AC-0003.** `memex write --type <name>` and the MCP and Python
       equivalents store the page at `projects/<project>/<name>/<slug>.md`
       with `type: "<name>"`, for enabled catalogue and declared custom types.
-- [ ] **AC-0004.** A `type` that is neither built-in, enabled, nor declared
+- [x] **AC-0004.** A `type` that is neither built-in, enabled, nor declared
       for that project is rejected before any file is written, on CLI, MCP,
       Python, and import, naming `memex types`.
-- [ ] **AC-0005.** The project's `index.md` lists each non-built-in type
+- [x] **AC-0005.** The project's `index.md` lists each non-built-in type
       under a heading derived from its name, after the built-in headings, in
       deterministic order, and the navigation-consistent verify check treats
       those headings as it treats built-in ones.
-- [ ] **AC-0006.** `RecencyDecay.apply_decay` leaves every catalogue-type
+- [x] **AC-0006.** `RecencyDecay.apply_decay` leaves every catalogue-type
       page's importance unchanged and reports zero changes for them.
-- [ ] **AC-0007.** `memex recall --type <name>`, the MCP `node_type` filter,
+- [x] **AC-0007.** `memex recall --type <name>`, the MCP `node_type` filter,
       and task recall's `node_type` accept enabled and declared types.
-- [ ] **AC-0008.** `memex verify` reports, as distinct named checks: a page
+- [x] **AC-0008.** `memex verify` reports, as distinct named checks: a page
       whose `type` differs from its directory; a project directory that is
       neither built-in, enabled, declared, nor draft; and a draft directory
       holding a non-pending page.
-- [ ] **AC-0009.** A consolidation node carrying `proposed_type` lands as a
+- [x] **AC-0009.** A consolidation node carrying `proposed_type` lands as a
       pending page in a draft directory whose `log.md` gains one entry naming
       the proposer, date, session ids, and page count; every recall path
       returns nothing from that directory.
-- [ ] **AC-0010.** `memex types suggest --scope project` lists tags present on
+- [x] **AC-0010.** `memex types suggest --scope project` lists tags present on
       at least `min_pages` (default 3) pages that are not types, with counts,
       and makes no LLM call.
-- [ ] **AC-0011.** `memex types remove <name>` refuses while pages exist and
+- [x] **AC-0011.** `memex types remove <name>` refuses while pages exist and
       names the count; `--force` archives them first. `memex types rename`
       and `merge` are governance verbs (`memory-governance`).
-- [ ] **AC-0012.** Export includes each project's enabled and declared types
+- [x] **AC-0012.** Export includes each project's enabled and declared types
       with descriptions; import recreates them before writing pages and fails
       on a page whose type is absent, naming the page.
-- [ ] **AC-0013.** Every page written before this change reads, indexes,
+- [x] **AC-0013.** Every page written before this change reads, indexes,
       recalls, and verifies unchanged.
-- [ ] **AC-0013a.** A `summary` or `episode` written by consolidation or
+- [x] **AC-0013a.** A `summary` or `episode` written by consolidation or
       capture is `active` on write; under the default `knowledge_approval =
       "manual"`, an `entity`, `procedure`, `preference`, catalogue, or custom
       page written by consolidation is `pending`, and the same page written
       through `memex write` by a person is `active`.
-- [ ] **AC-0014.** Spec, guide, architecture overview, and changelog describe
+- [x] **AC-0014.** Spec, guide, architecture overview, and changelog describe
       the three kinds, the catalogue table, and the widened `type` contract;
       `mkdocs build --strict` passes.
 
@@ -199,3 +199,15 @@ Approval, rename, and merge of a draft are governance verbs and live in
 - Product: three kinds, catalogue plus custom, project scope only; the
   directory is the declaration; model output is always a draft (owner,
   brainstorm 2026-09-23).
+
+## Resolved during implementation
+
+- A type's description has no field of its own: it lives in the directory's
+  `log.md`, on the `declare` (or `propose`) line that creates it
+  (`<ISO-UTC> declare <name> by <actor>: <description>`). Reading it back is
+  `WikiStore._log_state`; there is no second place a description could drift
+  from the declaration.
+- Whether a draft type's approval, rename, and merge verbs, and global-scope
+  catalogue/custom types, belong here or in a later spec stayed decided as
+  drafted: both are out of scope for this spec and are `memory-governance`'s
+  and a follow-on's, respectively (see Follow-ons and "Ask first" above).
