@@ -15,7 +15,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
 
-NODE_TYPES: tuple[str, ...] = ("entity", "preference", "procedure", "summary", "episode")
+from memex.domain.types import DESCRIPTION_MAX_BYTES, validate_type_name
+
 PAGE_STATUSES: tuple[str, ...] = ("active", "pending", "superseded", "archived")
 
 # OKF v0.2 relation vocabulary. ``DEFAULT_REL`` is what an untyped link means,
@@ -24,17 +25,10 @@ PAGE_STATUSES: tuple[str, ...] = ("active", "pending", "superseded", "archived")
 DEFAULT_REL = "relates-to"
 BODY_REL = "mentions"
 RELATION_FIELDS: tuple[str, ...] = ("parent", "supersedes", "implements", "depends_on")
-NON_EPISODE_TYPES: tuple[str, ...] = tuple(t for t in NODE_TYPES if t != "episode")
 TURN_ROLES: tuple[str, ...] = ("user", "agent", "tool")
 FORGET_MODES: tuple[str, ...] = ("hard", "soft", "decay")
 
-# Stored description budget: one line, at most 512 UTF-8 bytes (spec AC-0002).
-# Enforced on the stored (post-scrub) value, so redaction growth cannot land
-# an over-budget field on disk with a misleading boundary error.
-DESCRIPTION_MAX_BYTES = 512
-
 # Wire-level enums; pinned to the runtime tuples by test so they cannot drift.
-NodeType = Literal["entity", "preference", "procedure", "summary", "episode"]
 TurnRole = Literal["user", "agent", "tool"]
 ForgetMode = Literal["hard", "soft", "decay"]
 ConsolidateMode = Literal["full", "dry-run"]
@@ -287,10 +281,13 @@ class WriteInput:
     project_id: str | None = None
     project_label: str | None = None
     project_locator: str | None = None
+    #: Consolidation-only: a candidate name for a concept type no listed type
+    #: fits. Never validated here — the consolidator validates and clears it
+    #: before any node reaches ``Memex.write``.
+    proposed_type: str | None = None
 
     def __post_init__(self) -> None:
-        if self.type not in NODE_TYPES:
-            raise ValueError(f"type must be one of {NODE_TYPES}, got {self.type!r}")
+        validate_type_name(self.type)
         if not self.title.strip():
             raise ValueError("title must be non-empty")
         _check_description(self.description)
@@ -374,8 +371,7 @@ class WikiNode:
     project_locator: str | None = None
 
     def __post_init__(self) -> None:
-        if self.type not in NODE_TYPES:
-            raise ValueError(f"type must be one of {NODE_TYPES}, got {self.type!r}")
+        validate_type_name(self.type)
         if not self.title.strip():
             raise ValueError("title must be non-empty")
         _check_description(self.description)
@@ -481,8 +477,8 @@ class TaskRecallInput:
             raise ValueError("max_hits must be in [1, 36]")
         if not 1 <= self.max_tokens <= 4096:
             raise ValueError("max_tokens must be in [1, 4096]")
-        if self.node_type is not None and self.node_type not in NODE_TYPES:
-            raise ValueError("node_type must be a supported memory type")
+        if self.node_type is not None:
+            validate_type_name(self.node_type)
 
 
 @dataclass(slots=True)

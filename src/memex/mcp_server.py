@@ -25,12 +25,11 @@ from pydantic import Field
 
 from memex.application.dto import to_jsonable
 from memex.application.memory import Memex
-from memex.domain.errors import MemexError
+from memex.domain.errors import MemexError, WikiStoreError
 from memex.domain.models import (
     ConsolidateInput,
     ConsolidateMode,
     ForgetMode,
-    NodeType,
     TaskRecallInput,
     WriteInput,
 )
@@ -74,6 +73,11 @@ def _sanitize(exc: Exception) -> str:
         return "invalid arguments for this operation"
     if isinstance(exc, FileExistsError):
         return "resource already exists"
+    if isinstance(exc, WikiStoreError) and str(exc).startswith("undeclared type "):
+        # Names a rejected type by name only (already shape-validated, never
+        # a path or page body), so a caller can self-correct without a
+        # round trip through `memex types list`.
+        return str(exc)
     return "operation failed"
 
 
@@ -85,7 +89,7 @@ def _caught(tool: str, exc: Exception) -> dict[str, str]:
 
 
 def memex_write(
-    type: NodeType,
+    type: str,
     title: str,
     body: str,
     scope: Literal["global", "project"],
@@ -106,7 +110,8 @@ def memex_write(
 
     Args:
         type: Episode is not creatable here — episodes require transcript
-            ingestion through a harness hook or the CLI.
+            ingestion through a harness hook or the CLI. Any built-in, enabled
+            catalogue, or declared type for the target project; see memex types list.
         title: Human-readable; the slug derives from it.
         description: Optional one-sentence signpost (single line, at most
             512 UTF-8 bytes) stating WHEN the page is useful — the situation
@@ -160,7 +165,7 @@ def memex_write(
 def memex_recall(
     query: str,
     top_k: Annotated[int, Field(ge=1, le=100)] = 10,
-    node_type: NodeType | None = None,
+    node_type: str | None = None,
     scope: str | None = None,
     project_id: str | None = None,
     questions: list[str] | None = None,

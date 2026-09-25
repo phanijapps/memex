@@ -350,7 +350,7 @@ class TestWriteRead:
 
     def test_malformed_page_raises(self, data_dir: Path) -> None:
         store = WikiStore(data_dir)
-        bad = data_dir / "docs/entities/broken.md"
+        bad = data_dir / "docs/global/entities/broken.md"
         bad.parent.mkdir(parents=True, exist_ok=True)
         bad.write_text("not front matter at all\n", encoding="utf-8")
         with pytest.raises(WikiStoreError):
@@ -397,12 +397,17 @@ class TestGuardrails:
         assert Path(stored.file_path or "").exists()
 
     def test_get_path_unknown_type(self, data_dir: Path) -> None:
-        with pytest.raises(WikiStoreError, match="unknown node type"):
+        with pytest.raises(WikiStoreError, match="undeclared type"):
             WikiStore(data_dir).get_path("x", "folder")
 
-    def test_list_unknown_type(self, data_dir: Path) -> None:
-        with pytest.raises(WikiStoreError, match="unknown node type"):
-            WikiStore(data_dir).list("folder")
+    def test_list_bad_shape_type_rejected(self, data_dir: Path) -> None:
+        with pytest.raises(WikiStoreError, match=r"\[a-z\]"):
+            WikiStore(data_dir).list("Folder")
+
+    def test_list_undeclared_type_matches_no_pages(self, data_dir: Path) -> None:
+        # list spans every scope and project; a declaration is a per-project
+        # fact, so a shape-valid but undeclared type name matches nothing.
+        assert WikiStore(data_dir).list("folder") == []
 
     def test_move_missing_slug(self, data_dir: Path) -> None:
         with pytest.raises(WikiStoreError, match="cannot move"):
@@ -411,11 +416,11 @@ class TestGuardrails:
     def test_move_unknown_type(self, data_dir: Path) -> None:
         store = WikiStore(data_dir)
         store.write(make_node())
-        with pytest.raises(WikiStoreError, match="unknown node type"):
+        with pytest.raises(WikiStoreError, match="undeclared type"):
             store.move("ruff-linter", "folder")
 
     def test_write_unknown_type(self, data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="type"):
+        with pytest.raises(WikiStoreError, match="undeclared type"):
             WikiStore(data_dir).write(make_node(type="folder"))
 
 
@@ -446,7 +451,7 @@ class TestListScan:
 
 class TestFrontMatterValidation:
     def write_raw(self, data_dir: Path, text: str) -> None:
-        target = data_dir / "docs/entities/raw.md"
+        target = data_dir / "docs/global/entities/raw.md"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
 
@@ -520,9 +525,11 @@ class TestFrontMatterValidation:
             WikiStore(data_dir).read("raw")
 
     def test_invalid_type_rejected(self, data_dir: Path) -> None:
+        # Membership (built-in vs. declared) is the store's job at write time;
+        # a stored page's type is only checked for shape on read (Task 3).
         self.write_raw(
             data_dir,
-            '---\nokf_version: "0.2"\nid: "a"\ntype: "folder"\ntitle: "t"\n'
+            '---\nokf_version: "0.2"\nid: "a"\ntype: "Folder"\ntitle: "t"\n'
             'created: "2026-01-01T00:00:00Z"\ntimestamp: "2026-01-01T00:00:00Z"\n'
             'updated_at: "2026-01-01T00:00:00Z"\n'
             "importance: 0.5\n---\nbody",

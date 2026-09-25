@@ -6,6 +6,7 @@ import math
 from datetime import UTC, datetime
 
 from memex.domain.models import WikiNode, utc_now_iso
+from memex.domain.types import decays
 from memex.infrastructure.search.index_manager import IndexManager
 from memex.infrastructure.store.wiki_store import WikiStore
 
@@ -50,6 +51,8 @@ class RecencyDecay:
         if not self.enabled:
             return changes
         for node in wiki_store.scan_all():
+            if not decays(node.type):
+                continue  # knowledge is refined or superseded, never aged out
             new_score = self.decay_importance(node)
             if abs(new_score - node.importance) < _CHANGE_EPSILON:
                 continue

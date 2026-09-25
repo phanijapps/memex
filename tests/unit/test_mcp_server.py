@@ -237,12 +237,9 @@ def test_project_write_with_explicit_id_uses_id_fallback(
 
 
 def test_errors_are_sanitized() -> None:
-    from typing import cast
-
-    from memex.domain.models import NodeType
 
     assert memex_forget("totally-unknown-slug") == {"error": "memory node not found"}
-    assert memex_write(type=cast(NodeType, "bogus"), title="x", body="y", scope="global") == {
+    assert memex_write(type="Bogus", title="x", body="y", scope="global") == {
         "error": "invalid arguments for this operation"
     }
     assert memex_recall("???") == {"error": "invalid arguments for this operation"}

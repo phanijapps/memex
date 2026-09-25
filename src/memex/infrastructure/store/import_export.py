@@ -8,9 +8,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 from memex.domain.errors import IndexManagerError, WikiStoreError
-from memex.domain.models import NODE_TYPES, SemanticLink, WikiNode, utc_now_iso
+from memex.domain.models import SemanticLink, WikiNode, utc_now_iso
 from memex.domain.reserved import RESERVED_SLUGS
 from memex.domain.scrub import scrub
+from memex.domain.types import validate_type_name
 from memex.infrastructure.search.index_manager import IndexManager
 from memex.infrastructure.search.link_manager import LinkManager
 from memex.infrastructure.store.wiki_store import WikiStore
@@ -37,9 +38,22 @@ class ImportExport:
         self._on_page_written = on_page_written
 
     def export(self, output_path: Path | None = None) -> dict[str, object]:
+        declarations, skipped = self._store.project_declarations()
+        if skipped:
+            logger.warning("operation=export types_skipped=%d", skipped)
         document: dict[str, object] = {
             "version": EXPORT_VERSION,
             "exported_at": utc_now_iso(),
+            "types": [
+                {
+                    "scope": "project",
+                    "project_id": project_id,
+                    "name": declaration.name,
+                    "kind": declaration.kind,
+                    "description": declaration.description,
+                }
+                for project_id, declaration in declarations
+            ],
             "nodes": [self._node_to_json(node) for node in self._store.list()],
         }
         if output_path is not None:
@@ -61,6 +75,31 @@ class ImportExport:
         imported = 0
         skipped: list[str] = []
         errors: list[str] = []
+        type_entries = data.get("types")
+        for entry in type_entries if isinstance(type_entries, list) else []:
+            if not isinstance(entry, dict):
+                errors.append("non-object type entry skipped")
+                continue
+            name = str(entry.get("name", ""))
+            project_id = str(entry.get("project_id", ""))
+            try:
+                validate_type_name(name)
+            except ValueError:
+                errors.append(f"type {name!r}: invalid name")
+                continue
+            try:
+                if name in self._store.declared_types(scope="project", project_id=project_id):
+                    continue
+                self._store.declare_type(
+                    name,
+                    scope="project",
+                    project_id=project_id,
+                    description=str(entry.get("description", "")),
+                    actor="import",
+                    draft=entry.get("kind") == "draft",
+                )
+            except WikiStoreError as exc:
+                errors.append(f"type {name!r}: {exc}")
         for item in nodes:
             if not isinstance(item, dict):
                 errors.append("non-object node entry skipped")
@@ -68,7 +107,9 @@ class ImportExport:
             try:
                 node = self._node_from_json(item)
             except (ValueError, WikiStoreError) as exc:
-                errors.append(str(exc))
+                raw_slug = item.get("slug")
+                prefix = f"{raw_slug}: " if isinstance(raw_slug, str) and raw_slug else ""
+                errors.append(f"{prefix}{exc}")
                 continue
             slug = node.slug
             if not slug:
@@ -79,7 +120,7 @@ class ImportExport:
                 self._index.update_record(stored)
                 self._links.sync_node(stored)
             except (ValueError, WikiStoreError, IndexManagerError) as exc:
-                errors.append(str(exc))
+                errors.append(f"{slug}: {exc}")
                 continue
             if self._on_page_written is not None and stored.file_path:
                 self._on_page_written(Path(stored.file_path))
@@ -119,8 +160,12 @@ class ImportExport:
     def _node_from_json(self, item: dict[str, object]) -> WikiNode:
         node_type = item.get("type")
         title = item.get("title")
-        if not isinstance(node_type, str) or node_type not in NODE_TYPES:
+        if not isinstance(node_type, str):
             raise ValueError(f"invalid node type: {node_type!r}")
+        try:
+            validate_type_name(node_type)
+        except ValueError as exc:
+            raise ValueError(f"invalid node type: {node_type!r}") from exc
         if not isinstance(title, str) or not title.strip():
             raise ValueError("node title must be a non-empty string")
         importance = item.get("importance", 0.5)

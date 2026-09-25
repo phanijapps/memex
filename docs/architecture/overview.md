@@ -23,7 +23,7 @@ and rendered dashboard responses are derived or supporting state.
 
 | Area | Responsibility | Start here |
 | --- | --- | --- |
-| `src/memex/domain/` | Validated models, front matter, slugs, links, scrubbing, and adapter-neutral operation datatypes. No filesystem, database, network, or SDK calls. | `models.py`, `operations.py` |
+| `src/memex/domain/` | Validated models, front matter, slugs, links, scrubbing, the concept-type vocabulary, and adapter-neutral operation datatypes. No filesystem, database, network, or SDK calls. | `models.py`, `operations.py`, `types.py` |
 | `src/memex/application/` | The public `Memex` facade, orchestration, consolidation, context packing, link-graph expansion, verification, decay, and the LLM port. | `memory.py`, `ports.py`, `graph_expansion.py` |
 | `src/memex/infrastructure/` | Cross-cutting runtime adapters no package claims: configuration, logging, the run log, workspace identity, and LLM clients. | `config.py`, `llm_clients.py` |
 | `src/memex/infrastructure/store/` | The Markdown tree that is the source of truth: page CRUD, generated navigation, navigation search, watching, archive, and transfer. | `wiki_store.py`, `navigation.py`, `navigation_search.py` |
@@ -206,13 +206,35 @@ consolidation input, or watcher lifecycle events. A valid legacy page at a
 reserved name is preserved byte-for-byte; generation skips the colliding
 path and verification reports it. Opening a store never writes navigation.
 
+A project's type set is its directories: built-in types keep their
+pre-created plural directories, and a catalogue or custom type (ADR-0006,
+`domain/types.py`) exists for a project exactly when
+`projects/<project>/<type>/` exists on disk — there is no separate registry
+to fall out of sync with the tree. `log.md` in each declared directory
+records the declaration: an append-only, body-only history of
+`declare`/`propose`/`remove` lines memex writes and never rewrites, kept
+structural by the same reserved-filename rule as `index.md` so it never
+enters the store scan, FTS index, or export. `WikiStore.write`, `get_path`,
+and `move` validate `type` against built-in ∪ enabled catalogue ∪ declared
+custom for the caller's scope and project before any file is written; `list`
+validates only the type's shape, since it filters pages already on disk
+rather than deciding where a new one may be written. `NavigationGenerator`
+orders headings built-in-first then
+declared types alphabetically, falling back to a full render when a parsed
+index's section order is not canonical. `RecencyDecay.apply_decay` skips
+every catalogue page (`domain/types.py:decays`): the five built-ins and
+custom pages age on recency, catalogue knowledge does not.
+
 ### Verification and maintenance
 
 `memex verify` checks page parsing, index freshness (including the mirrored
 description), links, OKF graph and temporal conformance (parent resolution and
 acyclicity, relation targets, validity ordering, advisory staleness inside the
-window), optional recall/write activity evidence, and that
-generated navigation matches the page tree. `rebuild-index` reconstructs
+window), optional recall/write activity evidence, that generated navigation
+matches the page tree, and three type checks: a page whose `type` differs
+from its directory, a project directory that is neither built-in, enabled,
+declared, nor draft, and a draft directory holding a non-pending page.
+`rebuild-index` reconstructs
 derived SQLite state and regenerates directory indexes. Backup and restore
 validate archive paths and links; restore preserves the previous store in a
 timestamped directory before replacement.

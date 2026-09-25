@@ -471,3 +471,23 @@ def test_cli_engine_flag_defaults_to_fts5_and_accepts_navigation(
 
     with pytest.raises(SystemExit):
         cli.main([*base, "recall", "kafka", "--engine", "grep"])
+
+
+def test_navigation_engine_reports_declared_types(data_dir: Path) -> None:
+    memex = _memex(data_dir)
+    memex.wiki_store.declare_type("decision", scope="project", project_id=PROJECT_ID)
+    memex.write(
+        WriteInput(
+            type="decision",
+            title="Choose Kafka",
+            body="b",
+            description="When picking the broker.",
+            scope="project",
+            project_id=PROJECT_ID,
+        )
+    )
+    memex.rebuild_index()
+    hits = memex.recall(
+        "picking the broker", engine="navigation", scope="project", project_id=PROJECT_ID
+    ).hits
+    assert [(h.slug, h.node_type) for h in hits] == [("choose-kafka", "decision")]

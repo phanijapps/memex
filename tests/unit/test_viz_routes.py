@@ -305,7 +305,10 @@ class TestPagesFilter:  # AC-0002
             ("/pages?type=unrecognized", "Unknown memory type"),
             ("/pages?scope=unrecognized", "Unknown memory scope"),
             ("/pages?scope=project&project=missing", "Unknown project scope"),
-            ("/pages?type=summary", "No memories match this selection"),
+            (
+                "/pages?scope=project&project=aaaaaaaaaaaaaaaaaaaaaaaa&type=preference",
+                "No memories match this selection",
+            ),
         ],
     )
     def test_selection_empty_states(
@@ -639,3 +642,44 @@ class TestShellAndFallback:
         code, body = _get(port, "/definitely-not-a-route")
         assert code == 200
         assert "Not found" in body
+
+
+def test_memories_filter_accepts_dynamic_concept_types(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """A project-declared shelf (book) is a first-class filter on /pages."""
+    data_dir = tmp_path_factory.mktemp("viz-dynamic-type")
+    memex = Memex(Config(data_dir=data_dir))
+    memex.wiki_store.declare_type(
+        "book", scope="project", project_id="a" * 24, description="catalog records"
+    )
+    from memex.domain.models import WriteInput
+
+    memex.write(
+        WriteInput(
+            type="book",
+            title="Pride and Prejudice",
+            body="Title: Pride and Prejudice",
+            scope="project",
+            project_id="a" * 24,
+            project_label="memex",
+        )
+    )
+    memex.close()
+
+    class BoundVizHandler(VizHandler):
+        memex: Memex | None = Memex(Config(data_dir=data_dir))
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), BoundVizHandler)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    time.sleep(0.1)
+    try:
+        status, body = _get(port, "/pages?type=book")
+        assert status == 200
+        assert "Pride and Prejudice" in body
+        assert ">Book<" in body
+        assert "Unknown memory type" in _get(port, "/pages?type=nosuch")[1]
+    finally:
+        server.shutdown()
+        server.server_close()

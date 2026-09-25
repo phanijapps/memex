@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from memex.application.concept_types import ConceptTypes
 from memex.application.consolidator import WikiConsolidator
 from memex.application.ports import LLMResponse
 from memex.domain.errors import LLMError
@@ -11,6 +12,7 @@ from memex.infrastructure.config import ConfigLoader
 from memex.infrastructure.llm_clients import OpenAICompatClient, client_from_config
 from memex.infrastructure.search.index_manager import IndexManager
 from memex.infrastructure.search.link_manager import LinkManager
+from memex.infrastructure.store.navigation import NavigationGenerator
 from memex.infrastructure.store.wiki_store import WikiStore
 
 VALID_LLM_OUTPUT = json.dumps(
@@ -188,6 +190,111 @@ def test_prompt_contains_spec_sections(
     assert "## OUTPUT FORMAT" in fake.last_prompt
     assert existing.slug in fake.last_prompt
     assert "sess-p" in fake.last_prompt
+
+
+def test_prompt_includes_existing_summary_as_context(
+    harness: tuple[WikiConsolidator, WikiStore, IndexManager, FakeLLM],
+) -> None:
+    """Summaries are consolidated memory but still useful prompt context;
+    _consolidate_group's existing-nodes filter must not drop them."""
+    consolidator, store, index, fake = harness
+    summary = store.write(WikiNode(type="summary", title="Weekly Recap", body="b", id=""))
+    index.update_record(summary)
+    _episode(store, index, "sess-q")
+
+    consolidator.consolidate(ConsolidateInput())
+    assert fake.last_prompt is not None
+    assert summary.slug in fake.last_prompt
+
+
+def test_consolidated_node_carries_episode_project_label(
+    harness: tuple[WikiConsolidator, WikiStore, IndexManager, FakeLLM],
+) -> None:
+    consolidator, store, index, _fake = harness
+    project_id = "a" * 24
+    episode = store.write(
+        WikiNode(
+            type="episode",
+            title="Session labeled",
+            body="The user said: I prefer ruff over flake8.",
+            id="",
+            session_id="sess-label",
+            scope="project",
+            project_id=project_id,
+            project_label="Acme Web",
+        )
+    )
+    index.update_record(episode)
+
+    consolidator.consolidate(ConsolidateInput())
+    node = store.read("user-prefers-ruff")
+    assert node is not None and node.project_label == "Acme Web"
+
+
+def test_withdrawn_proposed_type_is_dropped_not_resurrected(
+    harness: tuple[WikiConsolidator, WikiStore, IndexManager, FakeLLM],
+) -> None:
+    """A model never resurrects a withdrawn type: the candidate lands under
+    its own stated type instead of aborting the run with an uncaught
+    "withdrawn" WikiStoreError from WikiStore.write."""
+    consolidator, store, index, fake = harness
+    project_id = "a" * 24
+
+    declared = store.declare_type("story-map", scope="project", project_id=project_id)
+    page = store.write(
+        WikiNode(
+            type="story-map",
+            title="Old Map",
+            body="b",
+            id="",
+            scope="project",
+            project_id=project_id,
+        )
+    )
+    index.update_record(page)
+
+    types = ConceptTypes(store, index, NavigationGenerator(store.wiki_dir))
+    types.remove("story-map", project_id=project_id, force=True)
+    log_after_withdrawal = (declared.directory / "log.md").read_text(encoding="utf-8")
+    assert store.declared_types(scope="project", project_id=project_id)["story-map"].kind == (
+        "withdrawn"
+    )
+
+    episode = store.write(
+        WikiNode(
+            type="episode",
+            title="Session withdrawn",
+            body="The user said: I prefer ruff over flake8.",
+            id="",
+            session_id="sess-w",
+            scope="project",
+            project_id=project_id,
+        )
+    )
+    index.update_record(episode)
+    fake.text = json.dumps(
+        [
+            {
+                "type": "entity",
+                "title": "Who edits",
+                "body": "b",
+                "tags": [],
+                "importance": 0.5,
+                "links": [],
+                "proposed_type": "story-map",
+            }
+        ]
+    )
+
+    report = consolidator.consolidate(ConsolidateInput())
+
+    assert report.nodes_created  # the run completed instead of aborting
+    node = store.read("who-edits")
+    assert node is not None and node.type == "entity"
+    assert store.declared_types(scope="project", project_id=project_id)["story-map"].kind == (
+        "withdrawn"
+    )
+    assert (declared.directory / "log.md").read_text(encoding="utf-8") == log_after_withdrawal
 
 
 def test_client_factory_builds_openai_compat(monkeypatch: pytest.MonkeyPatch) -> None:

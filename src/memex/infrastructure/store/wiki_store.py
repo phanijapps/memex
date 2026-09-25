@@ -14,7 +14,6 @@ from pathlib import Path
 from memex.domain.errors import WikiStoreError
 from memex.domain.frontmatter import parse_front_matter, serialize_front_matter
 from memex.domain.models import (
-    NODE_TYPES,
     PAGE_STATUSES,
     SemanticLink,
     WikiNode,
@@ -23,16 +22,48 @@ from memex.domain.models import (
 )
 from memex.domain.reserved import OKF_VERSION, RESERVED_SLUGS, is_structural
 from memex.domain.slugs import derive_slug, unique_slug
-
-TYPE_DIRS: dict[str, str] = {
-    "entity": "entities",
-    "preference": "preferences",
-    "procedure": "procedures",
-    "summary": "summaries",
-    "episode": "episodes",
-}
+from memex.domain.types import (
+    CATALOGUE,
+    DESCRIPTION_MAX_BYTES,
+    TYPE_DIRS,
+    TypeDeclaration,
+    TypeKind,
+    is_type_directory_name,
+    type_directory,
+    type_for_directory,
+    validate_type_name,
+)
 
 _SAFE_COMPONENT = re.compile(r"[a-z0-9][a-z0-9-]{0,127}")
+
+# The exact shape append_log writes: "<ISO-UTC> <verb> <target> by <actor>"
+# optionally followed by ": <text>". _log_state parses only lines matching
+# this shape; OKF allows other tools to write into log.md, so anything else
+# is ignored rather than rejected.
+_LOG_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+_LOG_VERBS = frozenset({"declare", "propose", "remove"})
+
+
+def _validate_log_text(text: str) -> None:
+    """One line, no control characters, at most ``DESCRIPTION_MAX_BYTES``.
+
+    ``text.splitlines() != [text]`` mirrors ``_log_state``'s own reader
+    exactly: ``str.splitlines()`` breaks on more than ``\\n``/``\\r`` (also
+    U+0085, U+2028, U+2029, ...), so a description carrying one of those
+    would still start a new "line" as ``_log_state`` reads it, even though
+    the control-character check (which only covers ord < 32 and DEL)
+    misses it. Never echoes ``text`` in the raised error: it may carry
+    untrusted input.
+    """
+    if not text:
+        return
+    if (
+        text.splitlines() != [text]
+        or any(ord(c) < 32 or c == "\x7f" for c in text)
+        or len(text.encode("utf-8")) > DESCRIPTION_MAX_BYTES
+    ):
+        raise WikiStoreError("declaration text must be one line of at most 512 bytes")
+
 
 # OKF v0.2 fields first, in the order the OKF reference implementation writes
 # them, then the Memex extension fields. The reader accepts exactly this set:
@@ -103,6 +134,50 @@ NodeList = list[WikiNode]
 PathList = list[Path]
 StrList = list[str]
 NamespaceKey = tuple[str, str, str, str]
+# Bare `list[...]` cannot appear in a WikiStore method signature: the class
+# also defines a method named `list`, and mypy resolves annotation forward
+# references (PEP 563) against the enclosing class scope, so it would bind
+# to that method instead of the builtin.
+ProjectDeclarations = list[tuple[str, TypeDeclaration]]
+
+
+def is_type_dir(wiki_dir: Path, directory: Path) -> bool:
+    """A direct child of a scope root whose name is a built-in dir or a valid type name.
+
+    A directory directly under ``docs/`` — no ``global`` or project
+    segment — counts only when its name is one of the five built-in
+    directory names (``entities``, ``preferences``, ...): pre-project-
+    scoping data and tooling such as ``eval/realistic.py`` write flat
+    ``docs/{type}/`` pages that way, and reading them back must keep
+    working. ``docs/global`` and ``docs/projects`` are scope-root
+    *containers*, not type directories, so this flat allowance never
+    extends to an arbitrary name there. Global scope holds exactly the
+    five built-ins on every surface — a catalogue or custom type is a
+    per-project declaration and only ever lives under
+    ``docs/projects/<project>/<type>``.
+    """
+    if not directory.is_dir() or directory.is_symlink():
+        return False
+    parent = directory.parent
+    if parent == wiki_dir or parent == wiki_dir / "global":
+        return directory.name in TYPE_DIRS.values()
+    if parent.parent != wiki_dir / "projects":
+        return False
+    return is_type_directory_name(directory.name)
+
+
+def _builtin_declarations(root: Path) -> dict[str, TypeDeclaration]:
+    """The five built-in types as declarations rooted at ``root``, page counts included."""
+    found: dict[str, TypeDeclaration] = {}
+    for name, dirname in TYPE_DIRS.items():
+        directory = root / dirname
+        pages = (
+            len([p for p in directory.glob("*.md") if not is_structural(p)])
+            if directory.is_dir()
+            else 0
+        )
+        found[name] = TypeDeclaration(name, "builtin", "", pages, directory)
+    return found
 
 
 class _MissingWikiPage(WikiStoreError):
@@ -145,11 +220,18 @@ class WikiStore:
         project_id: str | None = None,
         project_locator: str | None = None,
     ) -> Path:
-        """Path for a slug; searches type dirs when node_type is omitted."""
+        """Path for a slug; searches type dirs when node_type is omitted.
+
+        A declared (catalogue or custom) type is a per-project fact: every
+        production caller passes ``scope`` and, for project scope,
+        ``project_id``. Called with a non-built-in ``node_type`` and no
+        ``scope``, this resolves against global scope, where only built-in
+        types are known, and raises the "undeclared type" error — there is
+        no project to check a declaration against.
+        """
         self._validate_page_slug(slug)
         if node_type is not None:
-            if node_type not in TYPE_DIRS:
-                raise WikiStoreError(f"unknown node type: {node_type!r}")
+            self._assert_type_known(node_type, scope or "global", project_id, project_locator)
             return (
                 self._type_dir(node_type, scope or "global", project_id, project_locator)
                 / f"{slug}.md"
@@ -195,8 +277,7 @@ class WikiStore:
         intends: ``timestamp`` is refreshed on every write, while
         ``updated_at`` moves only when the body actually changes.
         """
-        if node.type not in TYPE_DIRS:
-            raise WikiStoreError(f"unknown node type: {node.type!r}")
+        self._assert_type_known(node.type, node.scope, node.project_id, node.project_locator)
         slug = node.slug or self._new_slug(
             node.title, node.id, node.scope, node.project_id, node.project_locator
         )
@@ -244,8 +325,10 @@ class WikiStore:
         """All nodes, optionally filtered by type. Sorted by slug."""
         nodes = self.scan_all()
         if node_type is not None:
-            if node_type not in TYPE_DIRS:
-                raise WikiStoreError(f"unknown node type: {node_type!r}")
+            try:
+                validate_type_name(node_type)
+            except ValueError as exc:
+                raise WikiStoreError(str(exc)) from exc
             nodes = [node for node in nodes if node.type == node_type]
         return sorted(nodes, key=lambda node: node.slug)
 
@@ -253,17 +336,16 @@ class WikiStore:
         """Traverse every type directory. Malformed pages are skipped and,
         when ``errors`` is provided, reported as messages."""
         nodes: NodeList = []
-        for type_dir in TYPE_DIRS.values():
-            for path in sorted(self.wiki_dir.rglob(f"{type_dir}/*.md")):
-                if is_structural(path):
-                    continue  # generated index.md / optional OKF log.md
-                try:
-                    self._reject_unsafe_page_path(path)
-                    nodes.append(self.read_path(path))
-                except WikiStoreError as exc:
-                    if errors is None:
-                        raise
-                    errors.append(str(exc))
+        for path in sorted(self.wiki_dir.rglob("*.md")):
+            if not self._is_type_dir(path.parent) or is_structural(path):
+                continue
+            try:
+                self._reject_unsafe_page_path(path)
+                nodes.append(self.read_path(path))
+            except WikiStoreError as exc:
+                if errors is None:
+                    raise
+                errors.append(str(exc))
         self._reject_duplicate_namespace_keys(nodes)
         return nodes
 
@@ -276,7 +358,7 @@ class WikiStore:
         the whole store. Non-type directories never hold pages and return
         an empty list without touching the filesystem.
         """
-        if directory.name not in TYPE_DIRS.values() or not directory.is_dir():
+        if not self._is_type_dir(directory):
             return []
         nodes: NodeList = []
         for path in sorted(directory.glob("*.md")):
@@ -300,15 +382,211 @@ class WikiStore:
         project_locator: str | None = None,
     ) -> Path:
         if scope == "global":
-            return self.wiki_dir / "global" / TYPE_DIRS[node_type]
+            return self.wiki_dir / "global" / type_directory(node_type)
         if scope == "project" and project_id:
             project_dir = self._project_dir(project_id, project_locator)
-            type_dir = project_dir / TYPE_DIRS[node_type]
+            type_dir = project_dir / type_directory(node_type)
             if type_dir.is_symlink():
                 raise WikiStoreError(f"project path component is a symlink: {type_dir}")
             self._ensure_inside_projects(type_dir)
             return type_dir
         raise WikiStoreError("project_id is required for project scope")
+
+    def _scope_root(self, scope: str, project_id: str | None, project_locator: str | None) -> Path:
+        if scope == "global":
+            return self.wiki_dir / "global"
+        if scope == "project" and project_id:
+            return self._project_dir(project_id, project_locator)
+        raise WikiStoreError("scope must be 'global' or 'project' with a project_id")
+
+    def _is_type_dir(self, directory: Path) -> bool:
+        """Delegates to the module-level predicate navigation.py also uses."""
+        return is_type_dir(self.wiki_dir, directory)
+
+    def _log_state(self, directory: Path) -> tuple[str | None, str]:
+        """(last qualifying lifecycle verb, declared description) from ``log.md``.
+
+        A line counts only when it matches ``append_log``'s exact shape:
+        ``<ISO-UTC> <verb> <target> by <actor...>``, with a known verb, the
+        directory's own type name as target, and a well-formed timestamp.
+        OKF allows other tools to write into ``log.md``, so a non-matching
+        line is ignored, never rejected. Returns ``(None, "")`` when no line
+        qualifies.
+        """
+        log = directory / "log.md"
+        if not log.exists():
+            return None, ""
+        target = type_for_directory(directory.name)
+        verb: str | None = None
+        description = ""
+        for line in log.read_text(encoding="utf-8").splitlines():
+            parts = line.split(" ", 4)
+            if (
+                len(parts) < 5
+                or parts[1] not in _LOG_VERBS
+                or parts[2] != target
+                or parts[3] != "by"
+                or not _LOG_TIMESTAMP.fullmatch(parts[0])
+            ):
+                continue
+            verb = parts[1]
+            if verb in {"declare", "propose"} and ": " in line:
+                description = line.split(": ", 1)[1]
+        return verb, description
+
+    def declared_types_in(self, root: Path) -> dict[str, TypeDeclaration]:
+        """Built-in types plus every type the directories under ``root`` declare.
+
+        Walks whatever ``root`` it is given — a project directory or
+        ``docs/global`` alike — with no global short-circuit; callers that
+        want global scope's built-ins-only rule use ``declared_types``.
+        A directory whose last lifecycle line is ``remove`` is reported
+        ``kind="withdrawn"``, not skipped: withdrawal is a state, not the
+        absence of one.
+        """
+        found = _builtin_declarations(root)
+        if not root.exists():
+            return found
+        for directory in sorted(root.iterdir()):
+            if directory.name in TYPE_DIRS.values() or not self._is_type_dir(directory):
+                continue
+            verb, description = self._log_state(directory)
+            if verb is None:
+                continue  # a stray folder is not a declaration
+            name = type_for_directory(directory.name)
+            kind: TypeKind
+            if verb == "remove":
+                kind = "withdrawn"
+            elif verb == "propose":
+                kind = "draft"
+            else:
+                kind = "catalogue" if name in CATALOGUE else "custom"
+            pages = len([p for p in directory.glob("*.md") if not is_structural(p)])
+            found[name] = TypeDeclaration(name, kind, description, pages, directory)
+        return found
+
+    def declared_types(
+        self, *, scope: str, project_id: str | None, project_locator: str | None = None
+    ) -> dict[str, TypeDeclaration]:
+        """Built-in types plus every type the scope root's directories declare."""
+        root = self._scope_root(scope, project_id, project_locator)
+        if scope == "global":
+            return _builtin_declarations(root)
+        return self.declared_types_in(root)
+
+    def project_directories(self) -> PathList:
+        """Sorted direct children of ``docs/projects``; symlinks are skipped."""
+        projects_dir = self.wiki_dir / "projects"
+        if not projects_dir.exists():
+            return []
+        return [
+            directory
+            for directory in sorted(projects_dir.iterdir())
+            if directory.is_dir() and not directory.is_symlink()
+        ]
+
+    def project_declarations(self) -> tuple[ProjectDeclarations, int]:
+        """Every non-builtin, non-withdrawn type declaration under every project directory.
+
+        Returns ``([(project_id, declaration), ...], skipped)``. A project
+        directory's ``project_id`` is recovered from its pages' front matter
+        via ``_project_id_in_dir`` rather than assumed from the directory
+        name: a caller may pass a ``project_locator`` that diverges from the
+        ``project_id`` (see ``_project_dir``), so directory name equality is
+        not guaranteed by the layout. A directory whose ``project_id`` cannot
+        be determined (no pages yet) or is inconsistent (its pages disagree
+        on ``project_id``) is skipped; ``skipped`` counts how many such
+        directories were found.
+        """
+        results: ProjectDeclarations = []
+        skipped = 0
+        for directory in self.project_directories():
+            try:
+                project_id = self._project_id_in_dir(directory)
+            except WikiStoreError:
+                project_id = None
+            declarations = [
+                d
+                for d in self.declared_types_in(directory).values()
+                if d.kind not in ("builtin", "withdrawn")
+            ]
+            if project_id is None:
+                if declarations:
+                    skipped += 1
+                continue
+            for declaration in declarations:
+                results.append((project_id, declaration))
+        return results, skipped
+
+    def declare_type(
+        self,
+        name: str,
+        *,
+        scope: str,
+        project_id: str | None,
+        description: str = "",
+        actor: str = "user",
+        draft: bool = False,
+        project_locator: str | None = None,
+    ) -> TypeDeclaration:
+        """Create a type's directory and its first ``log.md`` line, or
+        re-declare a withdrawn type by appending a fresh line to its history.
+        """
+        if scope != "project":
+            raise WikiStoreError(
+                "catalogue and custom types exist at project scope only; "
+                "global scope keeps the built-in types"
+            )
+        try:
+            validate_type_name(name, custom=name not in CATALOGUE)
+        except ValueError as exc:
+            raise WikiStoreError(str(exc)) from exc
+        _validate_log_text(description)
+        root = self._scope_root(scope, project_id, project_locator)
+        directory = root / type_directory(name)
+        self._reject_symlink(directory)
+        self._ensure_inside_projects(directory)
+        if directory.exists():
+            verb, _ = self._log_state(directory)
+            if verb is None:
+                raise WikiStoreError(
+                    f"directory {directory.name!r} exists without a declaration; "
+                    "remove or rename it first"
+                )
+            if verb != "remove":
+                raise WikiStoreError(f"type {name!r} is already declared")
+        else:
+            directory.mkdir(parents=True)
+        self.append_log(directory, "propose" if draft else "declare", name, actor, description)
+        return self.declared_types(
+            scope=scope, project_id=project_id, project_locator=project_locator
+        )[name]
+
+    def _assert_type_known(
+        self, node_type: str, scope: str, project_id: str | None, project_locator: str | None = None
+    ) -> None:
+        if node_type in TYPE_DIRS:
+            return
+        if scope != "project":
+            raise WikiStoreError(
+                f"undeclared type {node_type!r}: global scope holds the built-in types only"
+            )
+        declared = self.declared_types(
+            scope=scope, project_id=project_id, project_locator=project_locator
+        ).get(node_type)
+        if declared is None:
+            raise WikiStoreError(
+                f"undeclared type {node_type!r} for this project; "
+                "run memex types add or memex types enable"
+            )
+        if declared.kind == "withdrawn":
+            # Shares the "undeclared type " prefix with the branch above so
+            # mcp_server._sanitize's one prefix check passes both messages
+            # through without a second, withdrawn-specific branch.
+            raise WikiStoreError(
+                f"undeclared type {node_type!r}: withdrawn; "
+                "run memex types add or memex types enable to re-declare it"
+            )
 
     def delete(self, slug: str) -> Path:
         """Delete a page. Raises WikiStoreError when it does not exist."""
@@ -321,11 +599,10 @@ class WikiStore:
 
     def move(self, slug: str, new_type: str) -> WikiNode:
         """Move a page to a different node type directory."""
-        if new_type not in TYPE_DIRS:
-            raise WikiStoreError(f"unknown node type: {new_type!r}")
         node = self.read(slug)
         if node is None:
             raise WikiStoreError(f"cannot move, no wiki page for slug: {slug!r}")
+        self._assert_type_known(new_type, node.scope, node.project_id)
         old_path = self.get_path(slug)
         node.type = new_type
         node.updated_at = utc_now_iso()
@@ -419,7 +696,7 @@ class WikiStore:
         self._validate_page_slug(slug)
         matches: list[WikiNode] = []
         for path in sorted(self.wiki_dir.rglob(f"{slug}.md")):
-            if path.stem != slug or path.parent.name not in TYPE_DIRS.values():
+            if path.stem != slug or not self._is_type_dir(path.parent):
                 continue
             if is_structural(path):
                 continue  # generated navigation is not a memory page
@@ -447,7 +724,7 @@ class WikiStore:
             self.read_path(path)
             for root in roots
             for path in sorted(root.rglob("*.md"))
-            if path.parent.name in TYPE_DIRS.values() and not is_structural(path)
+            if self._is_type_dir(path.parent) and not is_structural(path)
         ]
         self._reject_duplicate_namespace_keys(
             [node for node in nodes if node.project_id == project_id]
@@ -549,6 +826,24 @@ class WikiStore:
         except OSError as exc:
             tmp.unlink(missing_ok=True)
             raise WikiStoreError(f"cannot write wiki page: {exc.strerror}") from exc
+
+    def append_log(
+        self, directory: Path, verb: str, target: str, actor: str, text: str = ""
+    ) -> None:
+        """Append one lifecycle line to the directory's OKF ``log.md``.
+
+        Body-only text with no front matter, so the file stays structural
+        and is never indexed, recalled, or rewritten by navigation. ``text``
+        must be one line within budget (``_validate_log_text``): a forged
+        multi-line or oversized value never reaches the file.
+        """
+        self._reject_symlink(directory / "log.md")
+        _validate_log_text(text)
+        line = f"{utc_now_iso()} {verb} {target} by {actor}"
+        if text:
+            line += f": {text}"
+        with (directory / "log.md").open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
 
 
 def _namespace_key(node: WikiNode) -> NamespaceKey:
@@ -654,8 +949,12 @@ def _node_from_dict(data: dict[str, object], body: str) -> WikiNode:
         raise WikiStoreError(f"unknown front matter keys: {sorted(unknown)}")
     _okf_version(data)
     node_type = data.get("type")
-    if not isinstance(node_type, str) or node_type not in NODE_TYPES:
+    if not isinstance(node_type, str):
         raise WikiStoreError(f"invalid node type: {node_type!r}")
+    try:
+        validate_type_name(node_type)
+    except ValueError as exc:
+        raise WikiStoreError(f"invalid node type: {exc}") from exc
     importance = data.get("importance", 0.5)
     if not isinstance(importance, int | float):
         raise WikiStoreError("front matter field 'importance' must be numeric")

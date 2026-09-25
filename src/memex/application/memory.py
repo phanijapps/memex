@@ -8,12 +8,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
+from memex.application.concept_types import ConceptTypes
 from memex.application.consolidator import WikiConsolidator
 from memex.application.decay import RecencyDecay
 from memex.application.ports import LLMClient
 from memex.domain.errors import LLMError, WikiStoreError
 from memex.domain.models import (
-    DESCRIPTION_MAX_BYTES,
     FORGET_MODES,
     BackupReport,
     ConsolidateInput,
@@ -35,6 +35,7 @@ from memex.domain.models import (
     utc_now_iso,
 )
 from memex.domain.scrub import scrub
+from memex.domain.types import DESCRIPTION_MAX_BYTES
 from memex.infrastructure.config import ConfigLoader, MemexConfig
 from memex.infrastructure.harness.transcript_hook import TranscriptHook
 from memex.infrastructure.llm_clients import client_from_config
@@ -98,6 +99,7 @@ class Memex:
             on_page_written=self._on_page_written,
         )
         self.navigation = NavigationGenerator(self.wiki_store.wiki_dir)
+        self.types = ConceptTypes(self.wiki_store, self.index_manager, self.navigation)
         if rebuild_on_open:
             # Navigation regeneration never happens on open: the transparent
             # index upgrade stays free of Markdown writes (spec AC-0015).

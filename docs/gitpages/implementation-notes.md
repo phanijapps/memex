@@ -207,7 +207,9 @@ rule, and the OpenAI SDK is the single LLM client.
   skip-and-continue packing and a top-1-whole guarantee (A3); injection
   floor — weak matches inject silence (A4); `occurred_at` dual timestamp
   (B4); page `status` lifecycle with archive/merge and recall filtering
-  (B5); HITL approval via `[governance] approval = "manual"` + `memex
+  (B5); HITL approval via `[governance] knowledge_approval = "manual"`
+  (default; renamed from `approval` in ADR-0006 — model-written knowledge
+  lands `pending`, memory types and person writes stay `active`) + `memex
   approve` (C1); reserved provenance namespaces source/harness/confidence
   (C2); 10-pattern secret scrubber at every write boundary (D1, adapted
   from Hindsight's 45-pattern catalog to anchored stdlib regexes);

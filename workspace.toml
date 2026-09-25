@@ -21,6 +21,7 @@
 [backlog]
 open = [
   { path = "docs/intent-continuity-survey.md", kind = "research", source = { mode = "repo-origin", ref = "docs/intent-continuity-survey.md", revision = "2026-09-20" }, summary = "Evaluate applicable task intent and continuity across coding-agent sessions", needs = [] },
+  { path = "docs/backlog/003-link-expansion-eval.md", kind = "research", source = { mode = "repo-origin", parent = "docs/specs/link-expansion/spec.md" }, summary = "Measure link expansion on a linked fixture with the existing six-metric rubric plus attribution and an inbound-expansion arm", needs = [] },
 ]
 closed = []
 
@@ -31,7 +32,11 @@ milestone = "Evidence-aware retrieval"
 
 ["ini-001".work]
 queue   = [
+  { path = "docs/specs/link-graph-visualizer/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "none" }, summary = "D3 force-directed view of the typed link graph in the local dashboard, with governance verbs on draft types", needs = ["docs/specs/memory-governance/spec.md"] },
+  { path = "docs/specs/memory-governance/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "docs/specs/project-concept-types/spec.md" }, summary = "Approval lifecycle for pending pages and draft types: human verbs on CLI and viz, policy-bounded agent approval over MCP, log.md history", needs = ["docs/specs/project-concept-types/spec.md"] },
+  { path = "docs/specs/git-backed-memory/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "docs/v1_enhance.md" }, summary = "Store as a git repository: approvals become branches and merge requests, cold-start seeding from project history, docs/ only ever versioned", needs = ["docs/specs/memory-governance/spec.md"] },
   { path = "docs/specs/project-aware-injection/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "docs/product/briefs/intent-continuity.md" }, summary = "Measure session-start relevance and conditionally select project-aware memories", needs = [] },
+  { path = "docs/specs/shelf-contracts/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "none" }, summary = "Move type behavior from names to explicit declaration contracts (ADR-0007)", needs = [] },
 ]
 active  = [
   { path = "docs/specs/okf-frontmatter/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "none" }, summary = "Make page front matter a conformant OKF v0.2 concept, OKF fields first", needs = [] },
@@ -43,6 +48,7 @@ active  = [
   { path = "docs/specs/navigation-search/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "none" }, summary = "navigation-search: dependency-free recall over generated index.md rows via Memex.recall(engine=\"navigation\") and memex recall --engine, with automatic fallback when the SQLite index has zero rows.", needs = [] },
 ]
 shipped = [
+  { path = "docs/specs/project-concept-types/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "none" }, summary = "Declare project-level concept types beyond the built-in five, with the directory as the declaration", needs = [] },
   { path = "docs/specs/project-scoped-memory-migration/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "docs/product/briefs/project-scoped-memory.md" }, summary = "Add project-scoped pages, scoped recall, and dated transcript lifecycle without runtime migration", needs = [] },
   { path = "docs/specs/dashboard-memory-explorer/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "docs/product/briefs/modern-htmx-dashboard.md" }, summary = "Paginate scoped memories and render grouped session replay in the local dashboard", needs = [] },
   { path = "docs/specs/readable-project-folders/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "none" }, summary = "Store project memory in readable Git or folder directories without merging distinct project IDs", needs = [] },

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from memex.domain.errors import WikiStoreError
 from memex.domain.models import WikiNode
 from memex.infrastructure.store.wiki_store import WikiStore
 
@@ -103,7 +104,14 @@ def test_wiki_front_matter_roundtrip(data_dir: Path) -> None:
     assert read_back.content_hash.startswith("sha256:")
 
 
-@pytest.mark.parametrize("bad_type", ["folder", "", "Entity"])
-def test_invalid_node_type_rejected(data_dir: Path, bad_type: str) -> None:
+@pytest.mark.parametrize("bad_type", ["", "Entity"])
+def test_invalid_shape_type_rejected_at_the_model(data_dir: Path, bad_type: str) -> None:
     with pytest.raises(ValueError, match="type"):
         _node(type=bad_type)
+
+
+def test_undeclared_shape_valid_type_rejected_at_the_store(data_dir: Path) -> None:
+    # "folder" is shape-valid, so the model accepts it by design (Task 2);
+    # membership (built-in or declared) is the store's job (Task 3).
+    with pytest.raises(WikiStoreError, match="undeclared type"):
+        WikiStore(data_dir).write(_node(type="folder"))

@@ -15,7 +15,7 @@ Applies to `src/memex/infrastructure/`. Inherits the root `AGENTS.md`. Scope-spe
 
 | Package | Owns | Modules |
 | --- | --- | --- |
-| `store/` | The Markdown tree that is the source of truth | `wiki_store.py` (page CRUD), `navigation.py` (generated `index.md`), `navigation_search.py` (ranked recall over generated `index.md` rows; front matter only, never bodies), `watcher.py` (mtime polling), `backup.py` (archive), `import_export.py` (JSON transfer) |
+| `store/` | The Markdown tree that is the source of truth | `wiki_store.py` (page CRUD; a project's type set is its directories — `declare_type`/`declared_types` read and write the declaration, and each declared directory's `log.md` is its append-only, body-only record), `navigation.py` (generated `index.md`), `navigation_search.py` (ranked recall over generated `index.md` rows; front matter only, never bodies), `watcher.py` (mtime polling), `backup.py` (archive), `import_export.py` (JSON transfer) |
 | `search/` | The disposable SQLite index and everything read from it | `index_manager.py` (schema, upsert, rebuild), `bm25_retriever.py` (FTS5 ranking and visibility), `link_manager.py` (the `(source, target, rel)` graph) |
 | `harness/` | Integration with coding agents | `installer.py` (hook and MCP registration), `transcripts.py` (harness-native transcript parsing), `transcript_hook.py` (capture, episode pages, provenance), `episode_enrichment.py` (runs a harness CLI for episode summaries) |
 | `web/` | The read-only localhost dashboard | `server.py` (HTTP server and routes), `components.py` (shell, scope controls), `explorer.py` (selection, pagination), `sessions.py` (replay), `markdown.py` (body rendering), `assets/` (CSS and htmx) |

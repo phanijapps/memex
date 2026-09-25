@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from types import SimpleNamespace
 from urllib.parse import urlencode
 
 from memex.domain.models import WikiNode
@@ -29,7 +31,8 @@ class MemorySelection:
 
 @dataclass(frozen=True)
 class MemoryPage:
-    nodes: list[WikiNode]
+    # WikiNode | light index-backed views (web.server._row_node)
+    nodes: list[WikiNode | SimpleNamespace]
     page: int
     pages: int
     total: int
@@ -43,7 +46,7 @@ def parse_page(value: str | None) -> int:
         return 1
 
 
-def paginate(nodes: list[WikiNode], selection: MemorySelection) -> MemoryPage:
+def paginate(nodes: Sequence[WikiNode | SimpleNamespace], selection: MemorySelection) -> MemoryPage:
     """Filter before counting; use a deterministic tie-break for equal timestamps."""
     if selection.scope == "global":
         nodes = [node for node in nodes if node.scope == "global"]

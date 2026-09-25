@@ -264,11 +264,13 @@ def test_forget_missing_slug_errors(data_dir: Path, capsys: pytest.CaptureFixtur
 
 
 def test_invalid_write_type_rejected(data_dir: Path) -> None:
-    with pytest.raises(SystemExit) as excinfo:
-        cli.main(
-            ["--data-dir", str(data_dir), "write", "--type", "bogus", "--title", "x", "--body", "y"]
-        )
-    assert excinfo.value.code == 2  # argparse choices
+    # `--type` is a free string now (validated for shape and declaration
+    # downstream, not a closed argparse `choices=`), so an unknown type is a
+    # domain rejection (exit 1), not an argparse SystemExit (exit 2).
+    code = cli.main(
+        ["--data-dir", str(data_dir), "write", "--type", "bogus", "--title", "x", "--body", "y"]
+    )
+    assert code == 1
 
 
 def test_info(data_dir: Path, capture: dict[str, str]) -> None:
@@ -351,3 +353,42 @@ def test_consolidate_requires_api_key(
     code = cli.main(["--data-dir", str(data_dir), "consolidate", "--mode", "dry-run"])
     assert code == 1
     assert "api_key" in capsys.readouterr().err
+
+
+def test_write_with_explicit_project_id_derives_label_from_context(
+    data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Explicit --project-id still needs no --project-label: the display name
+    falls back to the derived context label, matching the MCP write path."""
+    monkeypatch.setattr(
+        "memex.infrastructure.workspace_context.project_context",
+        lambda cwd: ProjectContext(
+            project_id="b" * 24,
+            label="memex",
+            locator="git-memex",
+        ),
+    )
+    code = cli.main(
+        [
+            "--data-dir",
+            str(data_dir),
+            "write",
+            "--type",
+            "entity",
+            "--title",
+            "Labeled page",
+            "--body",
+            "body",
+            "--scope",
+            "project",
+            "--project-id",
+            "b" * 24,
+        ]
+    )
+    assert code == 0
+    from memex.application.memory import Memex
+    from memex.infrastructure.config import MemexConfig
+
+    node = Memex(MemexConfig(data_dir=data_dir)).wiki_store.read("labeled-page")
+    assert node is not None
+    assert node.project_label == "memex"

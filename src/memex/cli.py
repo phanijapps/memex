@@ -50,7 +50,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     write = sub.add_parser("write", help=summary("memex_write"))
     write.add_argument(
-        "--type", required=True, choices=["entity", "preference", "procedure", "summary", "episode"]
+        "--type",
+        required=True,
+        help="Built-in, enabled catalogue, or declared type (see memex types list)",
     )
     write.add_argument("--title", required=True)
     write.add_argument("--body", required=True)
@@ -139,6 +141,28 @@ def _build_parser() -> argparse.ArgumentParser:
 
     approve_cmd = sub.add_parser("approve", help="Approve a pending page (flip status to active)")
     approve_cmd.add_argument("slug")
+
+    types_cmd = sub.add_parser("types", help="Declare and inspect project concept types")
+    types_sub = types_cmd.add_subparsers(dest="types_command", required=True)
+    for name, doc in (
+        ("list", "List built-in, catalogue, custom, and draft types"),
+        ("add", "Declare a custom type"),
+        ("enable", "Enable a catalogue type"),
+        ("remove", "Withdraw a type (archives its pages with --force)"),
+        ("suggest", "Tags that recur but are not yet types"),
+    ):
+        sp = types_sub.add_parser(name, help=doc)
+        if name in {"add", "enable", "remove"}:
+            sp.add_argument("name")
+        if name == "add":
+            sp.add_argument("--description", default="")
+        if name == "remove":
+            sp.add_argument("--force", action="store_true")
+        if name == "suggest":
+            sp.add_argument("--min-pages", type=int, default=3)
+        sp.add_argument("--scope", choices=["project"], default="project")
+        sp.add_argument("--project-id", default=None)
+        sp.add_argument("--project-label", default=None)
 
     merge_cmd = sub.add_parser(
         "merge", help="Merge source page into target; source becomes superseded"
@@ -711,6 +735,42 @@ def _run(args: argparse.Namespace) -> int:
             _emit(memex.import_export.import_file(args.input))
         elif args.command == "approve":
             _emit(memex.approve(args.slug))
+        elif args.command == "types":
+            project_id, _label, locator = _project_arguments(args)
+            if project_id is None:
+                raise ValueError("project identity could not be derived")
+            if args.types_command == "list":
+                _emit(
+                    memex.types.list(
+                        scope="project", project_id=project_id, project_locator=locator
+                    )
+                )
+            elif args.types_command == "add":
+                _emit(
+                    memex.types.add(
+                        args.name,
+                        project_id=project_id,
+                        description=args.description,
+                        project_locator=locator,
+                    )
+                )
+            elif args.types_command == "enable":
+                _emit(memex.types.enable(args.name, project_id=project_id, project_locator=locator))
+            elif args.types_command == "remove":
+                _emit(
+                    memex.types.remove(
+                        args.name, project_id=project_id, force=args.force, project_locator=locator
+                    )
+                )
+            elif args.types_command == "suggest":
+                _emit(
+                    [
+                        {"tag": tag, "pages": count}
+                        for tag, count in memex.types.suggest(
+                            project_id=project_id, min_pages=args.min_pages, project_locator=locator
+                        )
+                    ]
+                )
         elif args.command == "merge":
             _emit(memex.merge(args.target, args.source))
         elif args.command == "verify":
@@ -772,9 +832,12 @@ def _project_arguments(args: argparse.Namespace) -> tuple[str | None, str | None
     """Resolve project scope without exposing a remote URL or local path."""
     if getattr(args, "scope", "global") != "project":
         return None, None, None
-    if args.project_id:
-        return args.project_id, getattr(args, "project_label", None), None
     context = project_context(Path.cwd())
+    if args.project_id:
+        # An explicit id still deserves a display name: fall back to the
+        # derived context label so the dashboard never shows the bare
+        # "Project" placeholder for CLI writes (MCP writes already derive).
+        return args.project_id, getattr(args, "project_label", None) or context.label, None
     return (
         context.project_id,
         getattr(args, "project_label", None) or context.label,
