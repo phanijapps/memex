@@ -23,10 +23,10 @@ from memex.application.memory import Memex
 from memex.domain.models import SessionSummary, WikiNode
 from memex.infrastructure.web.components import DASHBOARD_CSS, PAGE_SHELL, escape, scope_controls
 from memex.infrastructure.web.explorer import (
+    MemoryPage,
     MemorySelection,
     direct_url,
     fragment_url,
-    paginate,
     parse_page,
     render_pager,
 )
@@ -189,6 +189,44 @@ class VizHandler(BaseHTTPRequestHandler):
                 first_slug[project_id] = slug
                 projects[project_id] = str(row["project_label"] or "Project")
         return projects
+
+    def _paginate_index(self, selection: MemorySelection) -> MemoryPage:
+        """Index-backed pagination: identical ordering to `paginate`, no scan.
+
+        Mirrors explorer.paginate's key (timestamp, slug, project_id) and its
+        scope semantics, so the Memories page renders the same order it
+        always did — in milliseconds instead of a full-store parse.
+        """
+        from memex.infrastructure.web.explorer import MEMORY_PAGE_SIZE
+
+        clauses: list[str] = []
+        params: list[object] = []
+        if selection.node_type:
+            clauses.append("node_type = ?")
+            params.append(selection.node_type)
+        if selection.scope == "global":
+            clauses.append("scope = 'global'")
+        elif selection.scope == "project":
+            clauses.append("project_id = ?")
+            params.append(selection.project_id or "")
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        count_row = self._index_rows(
+            "SELECT COUNT(*) AS n FROM wiki_index"  # noqa: S608 - static clauses, bound values
+            + where,
+            tuple(params),
+        )[0]
+        total = int(count_row["n"])
+        pages = max(1, (total + MEMORY_PAGE_SIZE - 1) // MEMORY_PAGE_SIZE)
+        page = min(selection.page, pages)
+        rows = self._index_rows(
+            "SELECT node_type, status, slug, title, body, description, scope,"  # noqa: S608 - static clauses, bound values
+            " project_id, project_label, tags, timestamp, importance, transcript_ref,"
+            " source, harness FROM wiki_index"
+            + where
+            + " ORDER BY timestamp DESC, slug DESC, project_id DESC LIMIT ? OFFSET ?",
+            (*params, MEMORY_PAGE_SIZE, (page - 1) * MEMORY_PAGE_SIZE),
+        )
+        return MemoryPage([self._row_node(row) for row in rows], page, pages, total)
 
     def _row_node(self, row: sqlite3.Row) -> SimpleNamespace:
         """Attribute-compatible page view over one index row (no parsing)."""
@@ -452,7 +490,7 @@ class VizHandler(BaseHTTPRequestHandler):
             return '<div class="empty">Unknown memory scope</div>'
         if selection.scope == "project" and selection.project_id not in projects:
             return '<div class="empty">Unknown project scope</div>'
-        result = paginate(self._m().wiki_store.list(selection.node_type), selection)
+        result = self._paginate_index(selection)
         selected = selection.project_id if selection.scope == "project" else selection.scope
         route = "/pages"
         if selection.node_type:
