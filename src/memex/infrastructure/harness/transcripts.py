@@ -129,14 +129,33 @@ def _finalize(turns: list[dict[str, object]]) -> list[TurnStreamEntry]:
 # ---------------------------------------------------------------- pi
 
 
+def _pi_usage(message: dict[str, object]) -> dict[str, int] | None:
+    """Normalize pi's camelCase usage to the meta sidecar's snake_case."""
+    usage = _usage_dict(message.get("usage"))
+    if usage is None:
+        return None
+    renames = {
+        "input": "input_tokens",
+        "output": "output_tokens",
+        "cacheRead": "cache_read_tokens",
+        "cacheWrite": "cache_write_tokens",
+        "totalTokens": "total_tokens",
+    }
+    return {renames.get(key, key): value for key, value in usage.items()}
+
+
 def parse_pi_session(path: Path) -> ParsedTranscript:
     """Parse a pi session JSONL (format v3) into turns.
 
     Message order follows file order, which is append order along the
     active branch. user/assistant text becomes conversation; toolResult
-    and bashExecution become tool turns.
+    and bashExecution become tool turns. Assistant messages carry a
+    per-API-call ``usage`` object (input, output, cacheRead, cacheWrite,
+    totalTokens); each is attached to the agent turn it billed and the
+    session total is their sum, same contract as the other harnesses.
     """
     turns: list[dict[str, object]] = []
+    totals: dict[str, int] = {}
     for entry in _read_jsonl(path):
         if entry.get("type") != "message":
             continue
@@ -150,8 +169,17 @@ def parse_pi_session(path: Path) -> ParsedTranscript:
                 {"role": "user", "content": _blocks_text(message.get("content")), "ts": ts}
             )
         elif role == "assistant":
+            usage = _pi_usage(message)
+            if usage is not None:
+                for key, value in usage.items():
+                    totals[key] = totals.get(key, 0) + value
             turns.append(
-                {"role": "agent", "content": _blocks_text(message.get("content")), "ts": ts}
+                {
+                    "role": "agent",
+                    "content": _blocks_text(message.get("content")),
+                    "ts": ts,
+                    **({"token_usage": usage} if usage is not None else {}),
+                }
             )
         elif role == "toolResult":
             turns.append(
@@ -175,7 +203,7 @@ def parse_pi_session(path: Path) -> ParsedTranscript:
                     "ts": ts,
                 }
             )
-    return ParsedTranscript(header=None, turns=_finalize(turns))
+    return ParsedTranscript(header=None, turns=_finalize(turns), session_usage=totals or None)
 
 
 # ---------------------------------------------------------------- claude

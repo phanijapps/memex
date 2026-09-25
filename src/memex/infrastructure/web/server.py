@@ -606,11 +606,26 @@ class VizHandler(BaseHTTPRequestHandler):
                 if unreadable
                 else '<div class="empty">No sessions captured yet</div>'
             )
-        episodes = {
-            node.session_id: node
-            for node in self._m().wiki_store.list("episode")
-            if node.session_id
-        }
+        # Episode lookups from the index, not a full-store parse: the
+        # session id is the transcript file stem (transcripts/<date>/<id>.jsonl);
+        # only pages lacking a transcript_ref fall back to one-file parses.
+        episodes: dict[str, SimpleNamespace] = {}
+        for row in self._index_rows(
+            "SELECT file_path, scope, project_label, transcript_ref"
+            " FROM wiki_index WHERE node_type = 'episode'"
+        ):
+            ref = row["transcript_ref"]
+            session_id = Path(str(ref)).stem if ref else None
+            if session_id is None:
+                page = self._m().wiki_store.read_path(Path(str(row["file_path"])))
+                session_id = page.session_id
+            if session_id:
+                episodes[session_id] = SimpleNamespace(
+                    session_id=session_id,
+                    scope=str(row["scope"]),
+                    project_label=str(row["project_label"]) if row["project_label"] else None,
+                    harness="",
+                )
         views = []
         for session in sessions:
             if not self._m().transcript_hook.is_valid_session_id(session.session_id):

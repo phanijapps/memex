@@ -194,3 +194,35 @@ class TestReaders:
         assert code == 0
         payload = json.loads(capture["out"])
         assert payload["turn_count"] > 0
+
+
+def test_pi_session_usage_reaches_meta_sidecar(tmp_path: Path) -> None:
+    """pi assistant usage lands in meta.json (total_tokens) and per-turn."""
+    import json
+
+    from memex.application.memory import Memex
+    from memex.domain.models import IngestTranscriptInput
+    from memex.infrastructure.config import MemexConfig
+    from memex.infrastructure.harness.transcripts import parse_transcript
+
+    parsed = parse_transcript("pi", Path("tests/fixtures/pi_session.jsonl"))
+    assert parsed.session_usage is not None
+    assert parsed.session_usage.get("total_tokens", 0) > 0
+    agent_turns = [t for t in parsed.turns if t.role == "agent"]
+    assert any(t.token_usage for t in agent_turns)
+
+    store = tmp_path / "store"
+    memex = Memex(MemexConfig(data_dir=store))
+    memex.ingest_transcript(
+        IngestTranscriptInput(
+            session_id="sess-pi-usage",
+            turns=parsed.turns,
+            token_usage=parsed.session_usage,
+        )
+    )
+    memex.close()
+    metas = list((store / "transcripts").rglob("sess-pi-usage.meta.json"))
+    assert metas, "meta sidecar missing"
+    meta = json.loads(metas[0].read_text(encoding="utf-8"))
+    assert meta["token_usage"]["total_tokens"] == parsed.session_usage["total_tokens"]
+    assert meta["turn_token_usage"], "per-turn usage not persisted"
