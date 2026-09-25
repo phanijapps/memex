@@ -12,6 +12,7 @@ when a later ADR supersedes or deprecates them.
 | [0004](0004-require-user-scope-enablement.md) | Accepted | 2026-09-16 | Capture, injection, and consolidation require explicit user-scope enablement. |
 | [0005](0005-adopt-okf-v02-page-front-matter.md) | Accepted | 2026-09-23 | Page front matter is OKF v0.2 first, with Memex fields as conformant extensions. |
 | [0006](0006-three-kinds-of-concept-type.md) | Accepted | 2026-09-24 | Built-in, catalogue, and custom concept types; the directory is the declaration, `log.md` is the record. |
+- [0007 — Shelves with explicit contracts replace type-name behavior](0007-shelves-with-explicit-contracts.md)
 
 ## Adding a decision
 

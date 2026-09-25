@@ -36,6 +36,7 @@ queue   = [
   { path = "docs/specs/memory-governance/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "docs/specs/project-concept-types/spec.md" }, summary = "Approval lifecycle for pending pages and draft types: human verbs on CLI and viz, policy-bounded agent approval over MCP, log.md history", needs = ["docs/specs/project-concept-types/spec.md"] },
   { path = "docs/specs/git-backed-memory/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "docs/v1_enhance.md" }, summary = "Store as a git repository: approvals become branches and merge requests, cold-start seeding from project history, docs/ only ever versioned", needs = ["docs/specs/memory-governance/spec.md"] },
   { path = "docs/specs/project-aware-injection/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "docs/product/briefs/intent-continuity.md" }, summary = "Measure session-start relevance and conditionally select project-aware memories", needs = [] },
+  { path = "docs/specs/shelf-contracts/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "none" }, summary = "Move type behavior from names to explicit declaration contracts (ADR-0007)", needs = [] },
 ]
 active  = [
   { path = "docs/specs/okf-frontmatter/spec.md", kind = "spec", source = { mode = "repo-origin", parent = "none" }, summary = "Make page front matter a conformant OKF v0.2 concept, OKF fields first", needs = [] },

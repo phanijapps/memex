@@ -364,14 +364,17 @@ class VizHandler(BaseHTTPRequestHandler):
             else '<div class="empty">No distilled memories yet — run <code>memex consolidate</code></div>'
         )
         token_chart = self._frag_tokens()
-        count_rows = self._index_rows(
-            "SELECT node_type AS kind, COUNT(*) AS n FROM wiki_index GROUP BY node_type"
-        )
-        counts_by_kind = {str(row["kind"]): int(row["n"]) for row in count_rows}
+        builtin_labels = {
+            "entity": "Entities",
+            "preference": "Preferences",
+            "procedure": "Procedures",
+            "summary": "Summaries",
+            "episode": "Episodes",
+        }
         type_counts = "".join(
-            f'<div class="kpi"><div class="value">{counts_by_kind.get(kind, 0)}</div>'
-            f'<div class="label">{kind.title()}</div></div>'
-            for kind in ("entity", "preference", "procedure", "summary", "episode")
+            f'<div class="kpi"><div class="value">{count}</div>'
+            f'<div class="label">{builtin_labels.get(kind, kind.replace("-", " ").title())}</div></div>'
+            for kind, count in self._type_counts()[:5]
         )
         options = "".join(
             f'<option value="{_esc(identifier)}">{_esc(label)}</option>'
@@ -476,14 +479,21 @@ class VizHandler(BaseHTTPRequestHandler):
             "</span></div>"
         )
 
+    def _type_counts(self) -> list[tuple[str, int]]:
+        """Every shelf present in the index with its page count, biggest first.
+
+        Dynamic concept types (a project's `book`, `domain`, …) appear here
+        exactly like the seeded five — the dashboard never hardcodes names.
+        """
+        rows = self._index_rows(
+            "SELECT node_type AS kind, COUNT(*) AS n FROM wiki_index"
+            " GROUP BY node_type ORDER BY n DESC, kind ASC"
+        )
+        return [(str(row["kind"]), int(row["n"])) for row in rows]
+
     def _frag_pages(self, selection: MemorySelection) -> str:
-        if selection.node_type and selection.node_type not in {
-            "entity",
-            "preference",
-            "procedure",
-            "summary",
-            "episode",
-        }:
+        known = dict(self._type_counts())
+        if selection.node_type and selection.node_type not in known:
             return '<div class="empty">Unknown memory type</div>'
         projects = self._projects()
         if selection.scope not in SEARCH_SCOPES:
@@ -496,15 +506,20 @@ class VizHandler(BaseHTTPRequestHandler):
         if selection.node_type:
             route += "?" + urlencode({"type": selection.node_type})
         scopes = scope_controls(projects, selected, route)
+        builtin_labels = {
+            "entity": "Entities",
+            "preference": "Preferences",
+            "procedure": "Procedures",
+            "summary": "Summaries",
+            "episode": "Episodes",
+        }
         filters = []
-        for node_type, label in (
-            (None, "All types"),
-            ("entity", "Entities"),
-            ("preference", "Preferences"),
-            ("procedure", "Procedures"),
-            ("summary", "Summaries"),
-            ("episode", "Episodes"),
-        ):
+        shown: list[tuple[str | None, str, int]] = [(None, "All types", sum(known.values()))]
+        shown += [
+            (node_type, builtin_labels.get(node_type, node_type.replace("-", " ").title()), count)
+            for node_type, count in known.items()
+        ][:9]
+        for node_type, label, _count in shown:
             target = MemorySelection(node_type, selection.scope, selection.project_id)
             fragment = _esc(fragment_url(target, 1))
             direct = _esc(direct_url(target, 1))
