@@ -819,9 +819,12 @@ def _project_arguments(args: argparse.Namespace) -> tuple[str | None, str | None
     """Resolve project scope without exposing a remote URL or local path."""
     if getattr(args, "scope", "global") != "project":
         return None, None, None
-    if args.project_id:
-        return args.project_id, getattr(args, "project_label", None), None
     context = project_context(Path.cwd())
+    if args.project_id:
+        # An explicit id still deserves a display name: fall back to the
+        # derived context label so the dashboard never shows the bare
+        # "Project" placeholder for CLI writes (MCP writes already derive).
+        return args.project_id, getattr(args, "project_label", None) or context.label, None
     return (
         context.project_id,
         getattr(args, "project_label", None) or context.label,
