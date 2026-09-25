@@ -13,8 +13,10 @@ from __future__ import annotations
 import html
 import json
 import re
+import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 from memex.application.memory import Memex
@@ -69,7 +71,7 @@ def _type_badge(node_type: str, status: str) -> str:
     return f'<span class="badge {node_type}">{_esc(node_type)}</span>'
 
 
-def _meta_line(node: WikiNode) -> str:
+def _meta_line(node: WikiNode | SimpleNamespace) -> str:
     parts = [_esc(getattr(node, "type", ""))]
     if getattr(node, "tags", None):
         parts.append(" ".join(f"#{_esc(t)}" for t in node.tags[:4]))
@@ -161,12 +163,55 @@ class VizHandler(BaseHTTPRequestHandler):
         return self.memex
 
     def _projects(self) -> dict[str, str]:
-        """Project ids mapped to their safe display labels."""
+        """Project ids mapped to their safe display labels.
+
+        Served from the disposable index, not a full-store parse: the
+        dashboard stays fast on large stores (a filesystem scan of tens of
+        thousands of pages takes the better part of a minute; this query is
+        milliseconds). MIN(slug) keeps the label choice deterministic the
+        way the old slug-sorted scan was.
+        """
+        rows = (
+            self._m()
+            .index_manager.connection.execute(
+                "SELECT project_id, project_label, MIN(slug) AS first_slug"
+                " FROM wiki_index WHERE scope = 'project' AND project_id != ''"
+                " GROUP BY project_id, project_label"
+            )
+            .fetchall()
+        )
         projects: dict[str, str] = {}
-        for node in self._m().wiki_store.list():
-            if node.scope == "project" and node.project_id:
-                projects.setdefault(node.project_id, node.project_label or "Project")
+        first_slug: dict[str, str] = {}
+        for row in rows:
+            project_id = str(row["project_id"])
+            slug = str(row["first_slug"])
+            if project_id not in first_slug or slug < first_slug[project_id]:
+                first_slug[project_id] = slug
+                projects[project_id] = str(row["project_label"] or "Project")
         return projects
+
+    def _row_node(self, row: sqlite3.Row) -> SimpleNamespace:
+        """Attribute-compatible page view over one index row (no parsing)."""
+        return SimpleNamespace(
+            type=str(row["node_type"]),
+            status=str(row["status"]),
+            slug=str(row["slug"]),
+            title=str(row["title"]),
+            body=str(row["body"]),
+            description=str(row["description"]),
+            scope=str(row["scope"]),
+            project_id=str(row["project_id"]) or None,
+            project_label=str(row["project_label"]) if row["project_label"] else None,
+            tags=json.loads(str(row["tags"])),
+            timestamp=str(row["timestamp"]),
+            importance=float(row["importance"]),
+            transcript_ref=row["transcript_ref"],
+            source=row["source"],
+            harness=row["harness"],
+        )
+
+    def _index_rows(self, sql: str, params: tuple[object, ...] = ()) -> list[sqlite3.Row]:
+        return self._m().index_manager.connection.execute(sql, params).fetchall()
 
     def _sessions(self) -> tuple[list[SessionSummary], int] | None:
         try:
@@ -231,21 +276,48 @@ class VizHandler(BaseHTTPRequestHandler):
             f'href="{active_href}"', f'href="{active_href}" aria-current="page"', 1
         )
 
+    def _index_stats(self) -> tuple[int, int, int]:
+        """(total, pending, stale-ish) counts for the dashboard, cheaply.
+
+        Below a page threshold the stale count is exact (the facade's
+        per-page freshness check); above it the store is too large for that
+        on a dashboard tick, so the index's own file-count bookkeeping stands
+        in and the UI still points at `memex verify` for the real gate.
+        """
+        conn = self._m().index_manager.connection
+        total_row = conn.execute(
+            "SELECT COUNT(*) AS n,"
+            " SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending"
+            " FROM wiki_index"
+        ).fetchone()
+        total, pending = int(total_row["n"]), int(total_row["pending"] or 0)
+        threshold = 2_000
+        if total <= threshold:
+            return total, pending, int(str(self._m().status().get("index_stale_rows", 0) or 0))
+        recorded = self._m().index_manager.get_meta("wiki_file_count")
+        stale = 0 if recorded is not None and int(recorded) == total else 1
+        return total, pending, stale
+
+    def _zero_yield_streak(self) -> int:
+        from memex.infrastructure.run_log import read_runs, zero_yield_streak
+
+        return zero_yield_streak(read_runs(self._m().data_dir))
+
     def _frag_overview(self) -> str:
-        stats = self._m().status()
-        total = int(str(stats.get("index_total", "0") or "0"))
-        pending = int(str(stats.get("pending", "0") or "0"))
-        stale = int(str(stats.get("index_stale_rows", "0") or "0"))
+        total, pending, stale = self._index_stats()
 
         health = '<span class="dot ok"></span>' if stale == 0 else '<span class="dot warn"></span>'
 
-        # Recent non-episode memories (the interesting ones)
-        all_nodes = self._m().wiki_store.list()
-        nodes = sorted(
-            (node for node in all_nodes if node.type != "episode"),
-            key=lambda node: (str(node.timestamp or ""), node.slug),
-            reverse=True,
-        )[:8]
+        # Recent non-episode memories (the interesting ones) — served from
+        # the index so a 78k-page store renders as fast as a 7-page one.
+        rows = self._index_rows(
+            "SELECT node_type, status, slug, title, body, description, scope,"
+            " project_id, project_label, tags, timestamp, importance, transcript_ref,"
+            " source, harness"
+            " FROM wiki_index WHERE node_type != 'episode'"
+            " ORDER BY timestamp DESC, slug DESC LIMIT 8"
+        )
+        nodes = [self._row_node(row) for row in rows]
         projects = self._projects()
         cards = "".join(self._card(n) for n in nodes)
         memories = (
@@ -254,8 +326,12 @@ class VizHandler(BaseHTTPRequestHandler):
             else '<div class="empty">No distilled memories yet — run <code>memex consolidate</code></div>'
         )
         token_chart = self._frag_tokens()
+        count_rows = self._index_rows(
+            "SELECT node_type AS kind, COUNT(*) AS n FROM wiki_index GROUP BY node_type"
+        )
+        counts_by_kind = {str(row["kind"]): int(row["n"]) for row in count_rows}
         type_counts = "".join(
-            f'<div class="kpi"><div class="value">{sum(node.type == kind for node in all_nodes)}</div>'
+            f'<div class="kpi"><div class="value">{counts_by_kind.get(kind, 0)}</div>'
             f'<div class="label">{kind.title()}</div></div>'
             for kind in ("entity", "preference", "procedure", "summary", "episode")
         )
@@ -302,7 +378,7 @@ class VizHandler(BaseHTTPRequestHandler):
   <div class="kpi"><div class="value">{len(projects)}</div><div class="label">Projects</div></div>
   <div class="kpi"><div class="value">{pending}</div><div class="label">Pending approval</div></div>
   <div class="kpi"><div class="value">{stale}</div><div class="label">Stale index rows</div></div>
-  <div class="kpi"><div class="value">{int(str(stats.get("zero_yield_streak", "0") or "0"))}</div><div class="label" title="Consecutive consolidations that produced zero new nodes">Zero-yield streak</div></div>
+  <div class="kpi"><div class="value">{self._zero_yield_streak()}</div><div class="label" title="Consecutive consolidations that produced zero new nodes">Zero-yield streak</div></div>
 </div>
 <form class="search-bar" action="/view/search" method="get" hx-get="/search"
   hx-trigger="input changed delay:300ms, change, submit" hx-target="#search-results">
@@ -324,12 +400,11 @@ class VizHandler(BaseHTTPRequestHandler):
 """
 
     def _frag_health(self) -> str:
-        stats = self._m().status()
-        stale = int(str(stats.get("index_stale_rows", "0") or "0"))
+        total, pending, stale = self._index_stats()
+        from memex.infrastructure.run_log import read_runs, zero_yield_streak
+
+        streak = zero_yield_streak(read_runs(self._m().data_dir))
         dot = '<span class="dot ok"></span>' if stale == 0 else '<span class="dot warn"></span>'
-        pending = int(str(stats.get("pending", "0") or "0"))
-        total = int(str(stats.get("index_total", "0") or "0"))
-        streak = int(str(stats.get("zero_yield_streak", "0") or "0"))
         link = " · Run memex verify in the CLI" if stale > 0 else ""
         return (
             f'{dot}<span class="metric"><b>{total}</b><span>pages</span></span>'
@@ -339,7 +414,7 @@ class VizHandler(BaseHTTPRequestHandler):
             f'<span class="spacer"></span><span class="subtle">5s</span>{link}'
         )
 
-    def _card(self, node: WikiNode) -> str:
+    def _card(self, node: WikiNode | SimpleNamespace) -> str:
         body_raw = _strip_enriched(str(getattr(node, "body", "")))
         badge = _type_badge(getattr(node, "type", ""), getattr(node, "status", "active"))
         slug = getattr(node, "slug", "")
@@ -566,14 +641,15 @@ class VizHandler(BaseHTTPRequestHandler):
             return '<div class="empty">Page not found</div>'
         if project_id is not None and project_id not in self._projects():
             return '<div class="empty">Page not found</div>'
-        node = next(
-            (
-                candidate
-                for candidate in self._m().wiki_store.list()
-                if candidate.slug == slug and candidate.project_id == project_id
-            ),
-            None,
+        row = self._index_rows(
+            "SELECT node_type, status, slug, title, body, description, scope,"
+            " project_id, project_label, tags, timestamp, importance, transcript_ref,"
+            " source, harness"
+            " FROM wiki_index WHERE slug = ? AND project_id = ?"
+            " ORDER BY scope LIMIT 1",
+            (slug, project_id or ""),
         )
+        node = self._row_node(row[0]) if row else None
         if node is None:
             return '<div class="empty">Page not found</div>'
 
