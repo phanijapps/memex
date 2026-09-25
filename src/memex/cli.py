@@ -736,25 +736,38 @@ def _run(args: argparse.Namespace) -> int:
         elif args.command == "approve":
             _emit(memex.approve(args.slug))
         elif args.command == "types":
-            project_id, _label, _locator = _project_arguments(args)
+            project_id, _label, locator = _project_arguments(args)
             if project_id is None:
                 raise ValueError("project identity could not be derived")
             if args.types_command == "list":
-                _emit(memex.types.list(scope="project", project_id=project_id))
+                _emit(
+                    memex.types.list(
+                        scope="project", project_id=project_id, project_locator=locator
+                    )
+                )
             elif args.types_command == "add":
                 _emit(
-                    memex.types.add(args.name, project_id=project_id, description=args.description)
+                    memex.types.add(
+                        args.name,
+                        project_id=project_id,
+                        description=args.description,
+                        project_locator=locator,
+                    )
                 )
             elif args.types_command == "enable":
-                _emit(memex.types.enable(args.name, project_id=project_id))
+                _emit(memex.types.enable(args.name, project_id=project_id, project_locator=locator))
             elif args.types_command == "remove":
-                _emit(memex.types.remove(args.name, project_id=project_id, force=args.force))
+                _emit(
+                    memex.types.remove(
+                        args.name, project_id=project_id, force=args.force, project_locator=locator
+                    )
+                )
             elif args.types_command == "suggest":
                 _emit(
                     [
                         {"tag": tag, "pages": count}
                         for tag, count in memex.types.suggest(
-                            project_id=project_id, min_pages=args.min_pages
+                            project_id=project_id, min_pages=args.min_pages, project_locator=locator
                         )
                     ]
                 )

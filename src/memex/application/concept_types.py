@@ -34,7 +34,14 @@ class ConceptTypes:
         self._index = index
         self._navigation = navigation
 
-    def add(self, name: str, *, project_id: str, description: str = "") -> TypeDeclaration:
+    def add(
+        self,
+        name: str,
+        *,
+        project_id: str,
+        description: str = "",
+        project_locator: str | None = None,
+    ) -> TypeDeclaration:
         try:
             validate_type_name(name, custom=True)
         except ValueError as exc:
@@ -47,10 +54,16 @@ class ConceptTypes:
                 ) from exc
             raise WikiStoreError(str(exc)) from exc
         return self._store.declare_type(
-            name, scope="project", project_id=project_id, description=description
+            name,
+            scope="project",
+            project_id=project_id,
+            description=description,
+            project_locator=project_locator,
         )
 
-    def enable(self, name: str, *, project_id: str) -> TypeDeclaration:
+    def enable(
+        self, name: str, *, project_id: str, project_locator: str | None = None
+    ) -> TypeDeclaration:
         try:
             validate_type_name(name)  # shape only; never embeds a bad name below
         except ValueError as exc:
@@ -58,15 +71,23 @@ class ConceptTypes:
         if name not in CATALOGUE:
             raise WikiStoreError(f"{name!r} is not a catalogue type; run memex types add")
         return self._store.declare_type(
-            name, scope="project", project_id=project_id, description=CATALOGUE[name].answers
+            name,
+            scope="project",
+            project_id=project_id,
+            description=CATALOGUE[name].answers,
+            project_locator=project_locator,
         )
 
-    def remove(self, name: str, *, project_id: str, force: bool = False) -> dict[str, object]:
+    def remove(
+        self, name: str, *, project_id: str, force: bool = False, project_locator: str | None = None
+    ) -> dict[str, object]:
         try:
             validate_type_name(name)  # shape only; never embeds a bad name below
         except ValueError as exc:
             raise WikiStoreError(str(exc)) from exc
-        declared = self._store.declared_types(scope="project", project_id=project_id).get(name)
+        declared = self._store.declared_types(
+            scope="project", project_id=project_id, project_locator=project_locator
+        ).get(name)
         if declared is None or declared.kind == "builtin":
             raise WikiStoreError(f"type {name!r} is not declared for this project")
         if declared.kind == "withdrawn":
@@ -84,14 +105,20 @@ class ConceptTypes:
         self._navigation.refresh(declared.directory, self._store.scan_dir)
         return {"removed": name, "archived": len(pages)}
 
-    def suggest(self, *, project_id: str, min_pages: int = 3) -> list[tuple[str, int]]:
+    def suggest(
+        self, *, project_id: str, min_pages: int = 3, project_locator: str | None = None
+    ) -> list[tuple[str, int]]:
         """Tags that recur and are not yet a type for this project.
 
         Shape-valid only; an un-enabled catalogue name (e.g. ``decision``)
         qualifies, since "not yet a type for this project" is exactly what
         it is until a person runs ``memex types enable``.
         """
-        known = set(self._store.declared_types(scope="project", project_id=project_id))
+        known = set(
+            self._store.declared_types(
+                scope="project", project_id=project_id, project_locator=project_locator
+            )
+        )
         counts: Counter[str] = Counter()
         for node in self._store.scan_all():
             if node.project_id != project_id:
@@ -112,5 +139,11 @@ class ConceptTypes:
     # type for every later annotation in this class body under
     # ``from __future__ import annotations`` (mypy resolves the postponed
     # string against the class namespace as it stands at that point).
-    def list(self, *, scope: str, project_id: str | None) -> list[TypeDeclaration]:
-        return list(self._store.declared_types(scope=scope, project_id=project_id).values())
+    def list(
+        self, *, scope: str, project_id: str | None, project_locator: str | None = None
+    ) -> list[TypeDeclaration]:
+        return list(
+            self._store.declared_types(
+                scope=scope, project_id=project_id, project_locator=project_locator
+            ).values()
+        )

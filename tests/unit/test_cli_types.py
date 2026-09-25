@@ -261,3 +261,42 @@ def test_suggest_counts_tags_that_are_not_types(
         )
     code, rows = _run(capsys, data_dir, "types", "suggest", "--project-id", PROJECT)
     assert code == 0 and rows == [{"tag": "user-stories", "pages": 3}]
+
+
+def test_types_enable_uses_the_derived_locator_so_writes_converge(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B3: enable with a derived locator declares under the readable folder,
+    and the next derived write finds the declaration."""
+    from memex import cli
+    from memex.infrastructure.workspace_context import ProjectContext
+
+    monkeypatch.setattr(
+        "memex.infrastructure.workspace_context.project_context",
+        lambda cwd: ProjectContext("c" * 24, "memex", "git-memex"),
+    )
+    code = cli.main(
+        ["--data-dir", str(data_dir), "types", "enable", "domain", "--scope", "project"]
+    )
+    assert code == 0
+    assert (data_dir / "docs" / "projects" / "git-memex" / "domain" / "log.md").is_file()
+
+    code = cli.main(
+        [
+            "--data-dir",
+            str(data_dir),
+            "write",
+            "--type",
+            "domain",
+            "--title",
+            "Converging page",
+            "--body",
+            "body",
+            "--scope",
+            "project",
+        ]
+    )
+    assert code == 0
+    assert (
+        data_dir / "docs" / "projects" / "git-memex" / "domain" / "converging-page.md"
+    ).is_file()
